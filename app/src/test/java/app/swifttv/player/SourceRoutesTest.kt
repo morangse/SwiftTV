@@ -8,28 +8,69 @@ class SourceRoutesTest {
     private val public = regional.copy(url = "https://public.example/live.m3u8")
     @Test fun preferenceIsExplicitAndDoesNotFabricateSuccessfulPlayback() {
         val health = mapOf(sourceId(public.url) to SourceStat(attempts = 4, successes = 4, firstFrameMs = 500))
-        assertEquals(listOf(regional, public), SourceRoutes.rank(listOf(public, regional), health, 0, true))
-        assertEquals(listOf(public, regional), SourceRoutes.rank(listOf(regional, public), health, 0, false))
+        assertEquals(listOf(regional, public), SourceRoutes.rank(listOf(public, regional), health, 0, RoutingMode.HENAN_FIRST))
+        assertEquals(listOf(public, regional), SourceRoutes.rank(listOf(regional, public), health, 0, RoutingMode.PLAYBACK_HISTORY))
         assertFalse(health.containsKey(sourceId(regional.url)))
         assertEquals("henan_cmcc", SourceRoutes.group(regional))
     }
     @Test fun failedRegionalCooldownGoesStraightToPublicBackup() {
         val health = mapOf(sourceId(regional.url) to SourceStat(failures = 1, cooldownUntil = 1000))
-        assertEquals(listOf(public), SourceRoutes.rank(listOf(regional, public), health, 999, true))
-        assertEquals(listOf(regional, public), SourceRoutes.rank(listOf(regional, public), health, 1000, true))
+        assertEquals(listOf(public), SourceRoutes.rank(listOf(regional, public), health, 999, RoutingMode.HENAN_FIRST))
+        assertEquals(listOf(regional, public), SourceRoutes.rank(listOf(regional, public), health, 1000, RoutingMode.HENAN_FIRST))
     }
     @Test fun manualChoiceWinsButOtherCoolingSourcesStayExcluded() {
         val cooling = regional.copy(url = "https://cooling.example/live.m3u8")
         val health = mapOf(sourceId(cooling.url) to SourceStat(cooldownUntil = 1000))
-        assertEquals(listOf(public, regional), SourceRoutes.rank(listOf(regional, public, cooling), health, 0, true, public))
+        assertEquals(listOf(public, regional), SourceRoutes.rank(listOf(regional, public, cooling), health, 0, RoutingMode.HENAN_FIRST, public))
     }
     @Test fun duplicatedCatalogUrlsNeverCreateIndependentBackups() {
-        assertEquals(listOf(regional, public), SourceRoutes.rank(listOf(regional, regional.copy(subscriptionId="other"), public), emptyMap(), 0, true))
+        assertEquals(listOf(regional, public), SourceRoutes.rank(listOf(regional, regional.copy(subscriptionId="other"), public), emptyMap(), 0, RoutingMode.HENAN_FIRST))
     }
     @Test fun regionClassificationDoesNotTrustSimilarHostnames() {
         assertTrue(SourceRoutes.isHenan(regional.url))
         assertFalse(SourceRoutes.isHenan("https://iptv.cdn.ha.chinamobile.com.example/live"))
         assertFalse(SourceRoutes.isHenan("https://user:secret@iptv.cdn.ha.chinamobile.com/live"))
         assertFalse(SourceRoutes.isHenan("http://example.com/iptv.cdn.ha.chinamobile.com/live"))
+    }
+
+    @Test fun autoNeedsDistinctFailuresOrPositiveFallbackEvidence() {
+        val auto = AutomaticSourceRouting()
+        auto.regionalFailure(11, regional.url)
+        auto.regionalFailure(11, regional.url)
+        assertEquals(RoutingMode.PLAYBACK_HISTORY, auto.effective(11, RoutingMode.AUTO))
+        auto.rendered(11, regional = false)
+        assertEquals(RoutingMode.PUBLIC_FIRST, auto.effective(11, RoutingMode.AUTO))
+        assertEquals(RoutingMode.HENAN_FIRST, auto.effective(11, RoutingMode.HENAN_FIRST))
+        assertEquals(RoutingMode.PLAYBACK_HISTORY, auto.effective(12, RoutingMode.AUTO))
+    }
+
+    @Test fun validatedRegionalPlaybackRecoversPriorityWithoutFlappingOnOneFailure() {
+        val auto = AutomaticSourceRouting()
+        auto.regionalFailure(11, regional.url)
+        auto.regionalFailure(11, regional.url + "?b=2")
+        assertEquals(RoutingMode.PUBLIC_FIRST, auto.effective(11, RoutingMode.AUTO))
+        auto.rendered(11, regional = true)
+        auto.regionalFailure(11, regional.url)
+        auto.rendered(11, regional = false)
+        assertEquals(RoutingMode.HENAN_FIRST, auto.effective(11, RoutingMode.AUTO))
+        auto.regionalFailure(11, regional.url + "?b=2")
+        assertEquals(RoutingMode.PUBLIC_FIRST, auto.effective(11, RoutingMode.AUTO))
+    }
+
+    @Test fun guovinPresetUsesTheOfficialIpv4ResultAndSharesManualSubscriptionIdentity() {
+        val url = PlaylistPreset.GUOVIN.urls.single()
+        assertEquals("https://guovin.github.io/iptv-api/ipv4.m3u", url)
+        val guovin = public.copy(subscriptionId = sourceId("url:$url"))
+        assertEquals("guovin_ipv4", SourceRoutes.group(guovin))
+        assertEquals("henan_cmcc", SourceRoutes.group(regional.copy(subscriptionId = guovin.subscriptionId)))
+        assertEquals(listOf(guovin, regional), SourceRoutes.rank(listOf(regional, guovin), emptyMap(), 0, RoutingMode.PUBLIC_FIRST))
+    }
+
+    @Test fun preserveSettingsOnlyWhenThereWasAnExplicitChoice() {
+        assertEquals(RoutingMode.AUTO, RoutingMode.resolve(null, null))
+        assertEquals(RoutingMode.HENAN_FIRST, RoutingMode.resolve(null, true))
+        assertEquals(RoutingMode.PLAYBACK_HISTORY, RoutingMode.resolve(null, false))
+        assertEquals(RoutingMode.AUTO, RoutingMode.resolve("auto", true))
+        assertEquals(RoutingMode.PUBLIC_FIRST, RoutingMode.resolve("public_first", null))
     }
 }

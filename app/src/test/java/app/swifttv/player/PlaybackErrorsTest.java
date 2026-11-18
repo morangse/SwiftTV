@@ -51,4 +51,22 @@ public class PlaybackErrorsTest {
         one.initCause(two); two.initCause(one);
         assertEquals("无法读取线路数据", PlaybackErrors.INSTANCE.describe(one));
     }
+
+    @Test public void routeEvidenceIncludesReachabilityAndDenials() {
+        HttpDataSource.InvalidResponseCodeException denied = new HttpDataSource.InvalidResponseCodeException(
+            403, "", null, Collections.emptyMap(), null, new byte[0]);
+        assertTrue(PlaybackErrors.INSTANCE.isReachabilityFailure(denied));
+        assertTrue(PlaybackErrors.INSTANCE.isReachabilityFailure(new UnknownHostException()));
+        assertTrue(PlaybackErrors.INSTANCE.isReachabilityFailure(
+            wrapped(null, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT)));
+    }
+    @Test public void missingChannelsDecoderErrorsAndTlsDoNotChangeTheRoute() {
+        HttpDataSource.InvalidResponseCodeException missing = new HttpDataSource.InvalidResponseCodeException(
+            404, "", null, Collections.emptyMap(), null, new byte[0]);
+        assertFalse(PlaybackErrors.INSTANCE.isReachabilityFailure(missing));
+        assertFalse(PlaybackErrors.INSTANCE.isReachabilityFailure(
+            wrapped(null, PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED)));
+        assertFalse(PlaybackErrors.INSTANCE.isReachabilityFailure(
+            wrapped(new SSLHandshakeException(""), PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)));
+    }
 }

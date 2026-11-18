@@ -7,9 +7,9 @@
 <p align="center"><strong>为电视遥控器设计的 Android TV 直播播放器</strong></p>
 
 <p align="center">
-  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.3.1/SwiftTV-0.3.1.apk"><strong>下载 APK</strong></a>
+  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.3.2/SwiftTV-0.3.2.apk"><strong>下载 APK</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.3.1">v0.3.1 发行说明</a>
+  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.3.2">v0.3.2 发行说明</a>
   &nbsp;·&nbsp;
   <a href="#安装与导入">快速上手</a>
 </p>
@@ -29,6 +29,7 @@
 | **频道画廊与收藏** | 按分组浏览频道，支持按央视编号排列、识别 M3U 附带的台标和收藏常看频道。方向键先移动焦点，按确认后再换台。 |
 | **原生播放与备用线路** | 基于 Media3 ExoPlayer 播放 HTTP/HTTPS HLS、MPEG-TS 和 HTTP-FLV。同一频道可有多条线路，播放异常时按策略恢复或尝试备用线路，也能手动切换。 |
 | **频道表与节目单** | 支持 M3U 网址、本地文件和局域网扫码导入。保存前可预览，远程订阅刷新失败时保留旧表。配置 XMLTV（.xml / .xml.gz）后可查看当前和下一档节目。 |
+| **自动选路与无画面提示** | 根据当前网络的连接失败和实际出画结果调整公网与河南移动线路的优先级。启动后没有画面时，可以直接预览 Guovin IPv4 或进入信号源设置。 |
 | **开机恢复** | 默认开启开机自动看直播，并记住上次播放的频道。可在「控制中心」关闭。实际开机和待机恢复取决于设备固件与系统权限。 |
 | **大屏显示** | 播放画面全屏，画廊和菜单使用半透明面板。低配设备可在「视觉与毛玻璃效果」切换「极速纯色」。 |
 | **线路检测与诊断** | 支持对单个频道或当前分类的线路测速，查看首帧和上次播放结果。通过手机扫码导出脱敏 JSON，方便复现播放问题。 |
@@ -42,11 +43,23 @@
 
 ## 安装与导入
 
-1. 在电视上安装 [SwiftTV-0.3.1.apk](https://github.com/morangse/SwiftTV/releases/download/v0.3.1/SwiftTV-0.3.1.apk)。可将 APK 复制到 U 盘，再使用电视的文件管理器打开。校验文件见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.3.1/SHA256SUMS.txt)。
-2. 打开 SwiftTV 的「控制中心」，添加你有权使用的 M3U 频道表。可手动输入订阅地址、选择电视上的本地文件，或选择「手机扫码管理台」，让同一 Wi-Fi 下的手机扫码导入。
+1. 在电视上安装 [SwiftTV-0.3.2.apk](https://github.com/morangse/SwiftTV/releases/download/v0.3.2/SwiftTV-0.3.2.apk)。可将 APK 复制到 U 盘，再使用电视的文件管理器打开。校验文件见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.3.2/SHA256SUMS.txt)。
+2. 打开 SwiftTV 的「控制中心」，添加你有权使用的 M3U 频道表。可选择「导入 Guovin 公网频道（iptv-api）」预览 IPv4 频道表，也可以手动输入订阅地址、选择本地文件，或用同一局域网中的手机扫码导入。
 3. 在预览中确认频道，保存后选台播放。若频道表附带有效节目单，SwiftTV 会读取它。也可以在控制中心填写独立的 XMLTV 地址。
 
 **公开版使用用户自行添加的频道表。** [M3U 格式样例](samples/example.m3u)可帮助你整理订阅，示例地址仅用于说明格式。
+
+## 启动后暂无画面
+
+SwiftTV 自动尝试同频道已有的备用线路。启动后约 15 秒没有首帧，或候选线路提前耗尽时，可以从提示直接预览 Guovin 或打开控制中心。首次使用且频道表为空时，控制中心会聚焦 Guovin 导入入口。保存导入前可先预览频道。
+
+「控制中心 → 优先路由策略」可以选择「自动识别」。自动模式根据当前网络上的播放结果选路，已保存的手动策略在升级时保留。Guovin 预设指向上游测试频道表，线路可用性以本机网络实测为准。 [Guovin 官方结果页](https://guovin.github.io/iptv-api/)
+
+<p align="center">
+  <img src="docs/screenshots/startup-guidance.png" width="700" alt="SwiftTV 0.3.2 的启动无画面提示，提供调整信号源和预览 Guovin IPv4 两个入口">
+</p>
+
+<p align="center"><sub>SwiftTV 0.3.2 在 MuMu 模拟器中的实拍，使用受控测试频道。</sub></p>
 
 ## 遥控器操作
 

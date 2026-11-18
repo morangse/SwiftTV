@@ -16,7 +16,7 @@ import javax.net.ssl.SSLPeerUnverifiedException
 /** Stable diagnostic categories. Never copy response bodies, headers, URLs or credentials. */
 @UnstableApi
 object PlaybackErrors {
-    fun describe(error: Throwable): String {
+    private fun causes(error: Throwable): List<Throwable> {
         val causes = mutableListOf<Throwable>()
         val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
         var cursor: Throwable? = error
@@ -24,6 +24,23 @@ object PlaybackErrors {
             causes += cursor
             cursor = cursor.cause
         }
+        return causes
+    }
+
+    fun isReachabilityFailure(error: Throwable): Boolean {
+        val causes = causes(error)
+        val status = causes.filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.responseCode
+        if (status != null) return status == 401 || status == 403
+        if (causes.any { it is SSLHandshakeException || it is SSLPeerUnverifiedException || it is CertificateException }) return false
+        if (causes.any { it is UnknownHostException || it is ConnectException || it is SocketTimeoutException }) return true
+        return causes.filterIsInstance<PlaybackException>().firstOrNull()?.errorCode in listOf(
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+        )
+    }
+
+    fun describe(error: Throwable): String {
+        val causes = causes(error)
         causes.filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()?.let {
             return "HTTP " + it.responseCode + "：" + when (it.responseCode) {
                 401, 403 -> "服务器拒绝访问或需要授权"

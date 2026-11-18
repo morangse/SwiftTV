@@ -85,6 +85,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private var startupRejected = false
     private var backgrounded = false
     private var userDeparted = false
+    private var presetLoading = false
+    private var startupSourceDialog: View? = null
 
     private val numberPad = ChannelNumberPad()
     private val commitNumberRunnable = Runnable { commitNumberSelection() }
@@ -239,13 +241,14 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         if (controller == null) {
             controller = PlaybackController(this, store, network, video, this)
             val channels = availableChannels()
-            landing.visibility = if (channels.isEmpty()) View.VISIBLE else View.GONE
+            val start = BuiltinPolicy.chooseStart(channels, store.snapshot().lastChannel, store.snapshot().stats)
+            landing.visibility = if (start == null) View.VISIBLE else View.GONE
             if (overlayMode == "pair" || overlayMode == "export") {
                 showPairing(overlayMode == "export")
-            } else if (channels.isEmpty()) {
-                showSettings()
+            } else if (start == null) {
+                showSettings(focusPreset = true)
             } else {
-                BuiltinPolicy.chooseStart(channels, store.snapshot().lastChannel, store.snapshot().stats)?.let { controller?.tune(it) }
+                controller?.tune(start, diagnoseStartup = !skipBuiltinsForTest)
                 if (overlayMode == "channels") {
                     overlayMode = ""; restoringMenu = true
                     try { showChannels(restore = true) } finally { restoringMenu = false }
@@ -278,6 +281,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
     override fun onStop() {
         backgrounded = true
+        if (startupSourceDialog != null && modalHost.getChildAt(0) === startupSourceDialog) dismissModal()
+        startupSourceDialog = null
         blurEngine.stop()
         controller?.stopProbe(false)
         closeSession()
@@ -342,6 +347,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun dismissModal() {
+        startupSourceDialog = null
         modalHost.removeAllViews()
         modalHost.visibility = View.GONE
         val restore = priorModalFocus
@@ -512,7 +518,16 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         panel.focusFirstRow()
     }
 
-    private fun showSettings() {
+    private fun routingLabel(): String {
+        val mode = RoutingMode.read(this)
+        return if (mode == RoutingMode.AUTO) when (controller?.effectiveRoutingMode()) {
+            RoutingMode.PUBLIC_FIRST -> "自动 · 公网优先"
+            RoutingMode.HENAN_FIRST -> "自动 · 河南移动可用"
+            else -> mode.title
+        } else mode.title
+    }
+
+    private fun showSettings(focusPreset: Boolean = false) {
         val panel = sheet("", "控制中心", "SwiftTV ${BuildConfig.VERSION_NAME}", "settings")
 
         panel.addSectionHeader("播放与画面体验")
@@ -527,11 +542,10 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 next
             }
         }
-        panel.addSegmentRow("优先路由策略", "方向键左右或确认键切换默认选路策略", if (BuiltinCatalog.preferHenan(this)) "河南移动优先" else "按实测表现") {
-            val next = !BuiltinCatalog.preferHenan(this)
-            BuiltinCatalog.setPreferHenan(this, next)
+        panel.addSegmentRow("优先路由策略", "自动模式按当前网络实际出画结果选路。确认键或方向键可手动切换", routingLabel()) {
+            RoutingMode.save(this, RoutingMode.read(this).next())
             availableChannels().firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it) }
-            if (next) "河南移动优先" else "按实测表现"
+            routingLabel()
         }
         panel.addSegmentRow("视觉与毛玻璃效果", "实时光学视频动态模糊与丝滑弹簧动效", if (TvStyle.lightweight(this)) "极速纯色" else "光学毛玻璃") {
             val nextLight = !TvStyle.lightweight(this)
@@ -547,7 +561,10 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         panel.addSectionHeader("订阅源、台标与节目单（EPG）")
         panel.addActionRow("手机扫码管理台", "同一 Wi-Fi 扫码导入 M3U、配置节目单与管理订阅", "打开二维码 →") { _, _ -> showPairing() }
         panel.addActionRow("导入河南移动全量源（HA-CMCC-IPTV）", "预览 Elykia 外部订阅 · 需河南移动 IPTV 网络", "拉取预览 →") { _, _ ->
-            fetchPresetHenanFullCatalog()
+            fetchPreset(PlaylistPreset.HENAN)
+        }
+        val guovinRow = panel.addActionRow("导入 Guovin 公网频道（iptv-api）", "官方 IPv4 频道表，可预览后保存", "拉取预览 →") { _, _ ->
+            fetchPreset(PlaylistPreset.GUOVIN, tryOnSave = controller?.current == null || controller?.exhausted == true)
         }
         panel.addActionRow("手动输入订阅地址", "输入任意 HTTP/HTTPS M3U 频道表链接", "输入 →") { _, _ -> manualImport() }
         panel.addActionRow("从电视本地文件导入", "选择本地存储中的 .m3u / .m3u8 文件", "浏览 →") { _, _ ->
@@ -581,28 +598,33 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             val license = assets.open("licenses/Apache-2.0.txt").bufferedReader().use { it.readText() }
             showModal("Apache-2.0", license, primaryLabel = "关闭", secondaryLabel = null) { true }
         }
-        panel.focusFirstRow()
+        if (focusPreset) guovinRow.requestFocus() else panel.focusFirstRow()
     }
 
-    private fun fetchPresetHenanFullCatalog() {
-        toast("正在拉取 HA-CMCC-IPTV 全量频道表…")
+    private fun fetchPreset(preset: PlaylistPreset, tryOnSave: Boolean = false) {
+        if (presetLoading) return
+        presetLoading = true
+        val generation = overlayGeneration
+        toast("正在拉取 ${preset.title} 频道表…")
         io.execute {
-            val urls = listOf(
-                "https://elykia093.github.io/HA-CMCC-IPTV/index.m3u",
-                "https://cdn.jsdelivr.net/gh/Elykia093/HA-CMCC-IPTV@main/public/index.m3u",
-                "https://fastly.jsdelivr.net/gh/Elykia093/HA-CMCC-IPTV@main/public/index.m3u"
-            )
-            var lastErr: Exception? = null
-            for (u in urls) {
+            var result: ImportPreview? = null
+            var lastError: Exception? = null
+            for (url in preset.urls) {
                 try {
-                    val result = createPreview(JSONObject().put("url", u).put("name", "河南移动全量扩展 (Elykia)"))
-                    postUi { confirmPreview(result) }
-                    return@execute
-                } catch (e: Exception) {
-                    lastErr = e
+                    result = createPreview(JSONObject().put("url", url).put("name", preset.title))
+                    break
+                } catch (error: Exception) {
+                    lastError = error
                 }
             }
-            postUi { toast("拉取失败：" + (lastErr?.message ?: "请检查网络连接或使用手机扫码上传本地 M3U")) }
+            postUi {
+                presetLoading = false
+                if (!backgrounded && !isFinishing && overlayGeneration == generation && !modalHost.isNotEmpty()) {
+                    val value = result
+                    if (value != null) confirmPreview(value, tryOnSave)
+                    else toast("拉取失败：" + DiagnosticRedaction.message(lastError?.message ?: "请检查网络连接"))
+                }
+            }
         }
     }
 
@@ -737,7 +759,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
     }
 
-    private fun confirmPreview(value: ImportPreview) {
+    private fun confirmPreview(value: ImportPreview, tryOnSave: Boolean = false) {
         val chCount = value.parsed.entries.map { it.channelId }.distinct().size
         val epgHint = if (value.parsed.epgUrls.isNotEmpty()) "\n· 已自动识别随表节目单（EPG）" else ""
         val sampleNames = value.parsed.entries.map { it.name }.distinct().take(10).joinToString("  ·  ")
@@ -747,7 +769,10 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             primaryLabel = "保存到电视"
         ) {
             io.execute {
-                try { store.replaceSubscription(value.subscription, value.parsed); postUi { imported() } }
+                try {
+                    store.replaceSubscription(value.subscription, value.parsed)
+                    postUi { imported(value.takeIf { tryOnSave }) }
+                }
                 catch (e: Exception) { postUi { toast("保存失败：" + e.message) } }
             }
             true
@@ -830,7 +855,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         try {
             val page = assets.open(if (export) "export.html" else "import.html").bufferedReader().use { it.readText() }
             val report = if (export) {
-                JSONObject(store.diagnostics(Build.MANUFACTURER + " " + Build.MODEL + " / Android " + Build.VERSION.RELEASE, if (BuiltinCatalog.preferHenan(this)) "henan_first" else "playback_history"))
+                JSONObject(store.diagnostics(Build.MANUFACTURER + " " + Build.MODEL + " / Android " + Build.VERSION.RELEASE, RoutingMode.read(this).key))
                     .put("startup", StartupRuntime.diagnostics(this))
                     .put("codec4kHevc50", codecProfile.supports4kHevc50)
                     .toString(2)
@@ -942,14 +967,23 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         server?.close(); server = null; preview = null
     }
 
-    private fun imported() {
+    private fun imported(preferred: ImportPreview? = null) {
         closeOverlay(); landing.visibility = View.GONE
         val channels = availableChannels()
-        val selected = channels.firstOrNull { it.id == store.snapshot().lastChannel && it.sources.isNotEmpty() }
-            ?: channels.firstOrNull { it.sources.isNotEmpty() }
-        selected?.let { controller?.tune(it) }
+        val state = store.snapshot()
+        val importUrls = preferred?.parsed?.entries?.groupBy({ it.channelId }, { it.url }).orEmpty()
+        val newChoices = channels.filter { channel ->
+            channel.sources.any { it.url in importUrls[channel.id].orEmpty() }
+        }
+        val playable = newChoices.ifEmpty { channels.filter { it.sources.isNotEmpty() } }
+        val selected = playable.firstOrNull { it.id == state.lastChannel } ?: playable.firstOrNull()
+        selected?.let { channel ->
+            val alternatives = channel.sources.filter { it.url in importUrls[channel.id].orEmpty() }
+            val source = SourceRanking.rank(alternatives, state.stats, System.currentTimeMillis()).firstOrNull()
+            controller?.tune(channel, preferred = source)
+        }
         refreshEpg(true)
-        toast("频道导入成功，共 ${channels.count { it.sources.isNotEmpty() }} 个可播频道")
+        toast("频道导入成功，共 ${channels.count { it.sources.isNotEmpty() }} 个频道有线路")
         showChannels()
     }
 
@@ -1058,10 +1092,42 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
         handler.removeCallbacks(hideHud)
         if (!failed && message == "正在播放") handler.postDelayed(hideHud, 3800)
-        if (failed && !overlay.isVisible && controller?.probing != true) showChannels()
+        if (failed && !overlay.isVisible && !modalHost.isNotEmpty() && controller?.probing != true) showChannels()
+    }
+
+    override fun onStartupSourceIssue(channel: Channel, issue: StartupSourceIssue) {
+        if (backgrounded || isFinishing) return
+        if (issue == StartupSourceIssue.OFFLINE) {
+            toast("电视尚未连接网络，请检查 Wi-Fi 或网线")
+            return
+        }
+        if (overlay.isVisible || modalHost.isNotEmpty()) {
+            toast("启动后暂无画面，可在控制中心调整信号源")
+            return
+        }
+        val regional = issue == StartupSourceIssue.REGIONAL_NO_PICTURE
+        val guovinSaved = store.snapshot().subscriptions.any { it.id in PlaylistPreset.GUOVIN.subscriptionIds }
+        val reason = if (regional) "当前网络上尝试的河南移动线路暂无画面。"
+            else "上次频道及启动时尝试的线路暂无画面。"
+        val next = if (guovinSaved) "Guovin 已导入。可以查看此频道的备用线路，或在控制中心刷新订阅。"
+            else "可以预览 Guovin IPv4 并将线路加到现有频道表。"
+        showModal(
+            title = "启动后暂无画面",
+            message = reason + "\n\n" + next,
+            primaryLabel = if (guovinSaved) "查看线路" else "预览 Guovin IPv4",
+            secondaryLabel = "稍后",
+            extraLabel = "调整信号源",
+            onExtra = { showSettings(focusPreset = true) }
+        ) {
+            if (guovinSaved) showOptions(channel)
+            else fetchPreset(PlaylistPreset.GUOVIN, tryOnSave = true)
+            true
+        }
+        startupSourceDialog = modalHost.getChildAt(0)
     }
 
     override fun onFirstFrame(channel: Channel, ms: Long) {
+        if (startupSourceDialog != null && modalHost.getChildAt(0) === startupSourceDialog) dismissModal()
         landing.visibility = View.GONE
         syncChannelCursor(channel.id)
     }

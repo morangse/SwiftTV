@@ -2,6 +2,7 @@ package app.swifttv.player
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -106,10 +107,15 @@ class PlaybackController(
         fun onStatus(channel: Channel?, message: String, failed: Boolean = false)
         fun onFirstFrame(channel: Channel, ms: Long)
         fun onStreamSpecChanged(spec: StreamSpec) {}
+        fun onStartupSourceIssue(channel: Channel, issue: StartupSourceIssue) {}
         fun onProbeProgress(index: Int, total: Int, message: String)
         fun onProbeFinished()
     }
     private val handler = Handler(Looper.getMainLooper())
+    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val automaticRouting = AutomaticSourceRouting()
+    private var attemptNetwork: Long? = null
+    private var startupSourceCheck: StartupSourceCheck? = null
     private val codecProfile = HardwareCodecProbe.profile(context)
     private val selector = DefaultTrackSelector(context).apply {
         val preferredVideo = if (codecProfile.supports4kHevc50 || codecProfile.supports1080pHevc) {
@@ -174,11 +180,30 @@ class PlaybackController(
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) {
-            handler.post { if (!closed && exhausted && current != null && !probing) onInternetRestored?.invoke() }
+            handler.post {
+                if (!closed && exhausted && current != null && !probing && activeNetworkId() == network.networkHandle) {
+                    onInternetRestored?.invoke()
+                }
+            }
         }
     }
 
-    fun tune(channel: Channel, requestedTime: Long = SystemClock.elapsedRealtime(), explicitRetry: Boolean = false, preferred: Entry? = null) {
+    private fun activeNetworkId(): Long? {
+        val active = connectivity?.activeNetwork ?: return null
+        return active.takeIf { connectivity.getNetworkCapabilities(it)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true }
+            ?.networkHandle
+    }
+
+    fun effectiveRoutingMode(): RoutingMode = automaticRouting.effective(activeNetworkId(), RoutingMode.read(context))
+
+    fun tune(
+        channel: Channel,
+        requestedTime: Long = SystemClock.elapsedRealtime(),
+        explicitRetry: Boolean = false,
+        preferred: Entry? = null,
+        diagnoseStartup: Boolean = false
+    ) {
+        startupSourceCheck = if (diagnoseStartup) StartupSourceCheck(requestedTime) else null
         cancelPending()
         if (probing) stopProbe(false)
         val outgoing = current
@@ -194,7 +219,7 @@ class PlaybackController(
         requestedAt = requestedTime
         store.remember(channel.id)
         if (explicitRetry) channel.sources.forEach { store.clearCooldown(it.url) }
-        queue = SourceRoutes.rank(channel.sources, store.snapshot().stats, System.currentTimeMillis(), BuiltinCatalog.preferHenan(context), preferred)
+        queue = SourceRoutes.rank(channel.sources, store.snapshot().stats, System.currentTimeMillis(), effectiveRoutingMode(), preferred)
         queueIndex = 0
         playQueued()
     }
@@ -213,6 +238,7 @@ class PlaybackController(
             exhausted = true
             finishSource()
             player.stop()
+            reportStartupSourceIssue(SystemClock.elapsedRealtime(), exhausted = true)
             callback.onStatus(current, if (current?.sources.isNullOrEmpty()) "此频道暂无已验证线路。可在设置添加自定义源。" else "所有线路均失败。按右键重试或刷新订阅。", true)
             return
         }
@@ -233,6 +259,8 @@ class PlaybackController(
         player.stop()
         player.playWhenReady = true
         entry = next
+        attemptNetwork = activeNetworkId()
+        if (!probing) startupSourceCheck?.attempting(SourceRoutes.isHenan(next.url))
         firstFrame = false
         lastFormat = null
         lastAudioMime = ""
@@ -270,7 +298,11 @@ class PlaybackController(
             sniffCall = network.sniff(next) { result ->
                 handler.post {
                     if (!closed && switchId == expected && entry?.url == next.url) {
-                        result.fold({ prepare(next, it) }, { fail(it.message ?: "无法读取线路清单") })
+                        result.fold({ prepare(next, it) }, {
+                            val reachability = PlaybackErrors.isReachabilityFailure(it)
+                            val message = if (reachability) PlaybackErrors.describe(it) else it.message ?: "无法读取线路清单"
+                            fail(message, reachability)
+                        })
                     }
                 }
             }
@@ -324,12 +356,22 @@ class PlaybackController(
                     }
                 }.also { handler.postDelayed(it, PlaybackRecoveryPolicy.RECONNECT_DELAY_MS) }
             }
-            RecoveryAction.FAIL_AND_COOL -> fail(message)
+            RecoveryAction.FAIL_AND_COOL -> fail(message, error?.let(PlaybackErrors::isReachabilityFailure) == true)
         }
     }
 
-    private fun fail(message: String) {
+    private fun fail(message: String, reachabilityFailure: Boolean = false) {
         val failedEntry = entry ?: return
+        if (!probing && !firstFrame && reachabilityFailure && SourceRoutes.isHenan(failedEntry.url)) {
+            val networkId = activeNetworkId()
+            if (networkId != null && networkId == attemptNetwork) {
+                val mode = RoutingMode.read(context)
+                val before = automaticRouting.effective(networkId, mode)
+                automaticRouting.regionalFailure(networkId, failedEntry.url)
+                val after = automaticRouting.effective(networkId, mode)
+                if (before != after) queue = queue.take(queueIndex) + SourceRoutes.prioritize(queue.drop(queueIndex), after)
+            }
+        }
         Log.w("SwiftTVMetric", "source_failed source=" + sourceId(failedEntry.url) + " error=" + DiagnosticRedaction.message(message))
         finishSource(failed = true)
         store.record(failedEntry.url) { it.copy(failures = it.failures + 1, lastOutcome = "failed", error = DiagnosticRedaction.message(message), checkedAt = System.currentTimeMillis(),
@@ -353,7 +395,7 @@ class PlaybackController(
                 if (firstFrame && player.playbackState == Player.STATE_BUFFERING) rebufferUnflushed += delta
                 val position = player.currentPosition
                 if (position != lastPosition) { noProgressAt = now; lastPosition = position }
-                if (!firstFrame && now - sourceStartedAt >= 8000) fail("八秒内没有视频画面")
+                if (!firstFrame && now - sourceStartedAt >= 8000) fail("八秒内没有视频画面", reachabilityFailure = lastFormat == null)
                 else if (bufferingAt > 0 && now - bufferingAt >= 8000) recoverOrFail(null, "持续缓冲超过八秒")
                 else if (firstFrame && player.isPlaying && now - noProgressAt >= 8000) recoverOrFail(null, "播放进度停止")
                 else if (probing && firstFrame && now - probeFirstFrameAt >= 12000) {
@@ -363,8 +405,19 @@ class PlaybackController(
                 }
                 if (now - lastFlush >= 10000) flush()
             }
+            if (!probing && entry != null && player.playWhenReady && player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
+                reportStartupSourceIssue(now)
+            }
             handler.postDelayed(this, 500)
         }
+    }
+
+    private fun reportStartupSourceIssue(now: Long, exhausted: Boolean = false) {
+        val check = startupSourceCheck ?: return
+        val channel = current ?: return
+        val issue = check.check(now, exhausted, activeNetworkId() != null) ?: return
+        if (issue != StartupSourceIssue.OFFLINE) startupSourceCheck = null
+        callback.onStartupSourceIssue(channel, issue)
     }
 
     private fun flush() {
@@ -407,7 +460,7 @@ class PlaybackController(
         val index = channels.indexOfFirst { it.id == current?.id }
         if (channels.size < 2 || index < 0) return
         val next = channels[(index + 1) % channels.size]
-        val source = SourceRoutes.rank(next.sources, store.snapshot().stats, System.currentTimeMillis(), BuiltinCatalog.preferHenan(context)).firstOrNull() ?: return
+        val source = SourceRoutes.rank(next.sources, store.snapshot().stats, System.currentTimeMillis(), effectiveRoutingMode()).firstOrNull() ?: return
         warmCall?.cancel()
         warmCall = network.warm(source)
     }
@@ -416,6 +469,7 @@ class PlaybackController(
         val items = channels.flatMap { c -> c.sources.distinctBy { it.url }.map { c to it } }
         if (items.isEmpty()) { callback.onProbeFinished(); return }
         cancelPending()
+        startupSourceCheck = null
         beforeProbeId = current?.id
         finishSource()
         warmCall?.cancel()
@@ -449,6 +503,7 @@ class PlaybackController(
 
     fun stop() {
         cancelPending()
+        startupSourceCheck = null
         if (probing) stopProbe(false)
         finishSource()
         player.stop()
@@ -536,6 +591,11 @@ class PlaybackController(
                 val sourceMs = probeFirstFrameAt - sourceStartedAt
                 lastFirstFrameMs = ms
                 val e = entry ?: return
+                if (!probing) {
+                    startupSourceCheck = null
+                    val networkId = activeNetworkId()
+                    if (networkId != null && networkId == attemptNetwork) automaticRouting.rendered(networkId, SourceRoutes.isHenan(e.url))
+                }
                 store.record(e.url) { s -> s.copy(successes = s.successes + 1,
                     firstFrameMs = if (s.firstFrameMs == 0L) sourceMs else (s.firstFrameMs * 2 + sourceMs) / 3,
                     checkedAt = System.currentTimeMillis(), error = "", cooldownUntil = 0, lastOutcome = "playing",
@@ -549,7 +609,7 @@ class PlaybackController(
                 if (!probing) warmNext()
             }
         })
-        onInternetRestored = { current?.let { tune(it, explicitRetry = true) } }
+        onInternetRestored = { current?.let { tune(it, explicitRetry = true, diagnoseStartup = startupSourceCheck != null) } }
         runCatching {
             val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             manager.registerNetworkCallback(android.net.NetworkRequest.Builder()

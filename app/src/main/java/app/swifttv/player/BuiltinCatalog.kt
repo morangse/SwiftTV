@@ -81,10 +81,6 @@ object BuiltinPolicy {
 object BuiltinCatalog {
     const val REVISION = 5
     const val ID = "builtin-reviewed"
-    fun preferHenan(context: Context) = context.getSharedPreferences("preferences", Context.MODE_PRIVATE).getBoolean("preferHenan", true)
-    fun setPreferHenan(context: Context, enabled: Boolean) {
-        context.getSharedPreferences("preferences", Context.MODE_PRIVATE).edit { putBoolean("preferHenan", enabled) }
-    }
     fun enabled(context: Context) = context.getSharedPreferences("preferences", Context.MODE_PRIVATE).getBoolean("builtinsEnabled", true)
     @Synchronized fun setEnabled(context: Context, store: CatalogStore, enabled: Boolean) {
         context.getSharedPreferences("preferences", Context.MODE_PRIVATE).edit { putBoolean("builtinsEnabled", enabled) }
