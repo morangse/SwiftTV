@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- OkHttp 4.12.0 and AndroidX versions are deliberately pinned to preserve minSdk 23 compatibility. -->
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="NewerVersionAvailable" severity="ignore" />
+    <issue id="OldTargetApi" severity="ignore" />
+</lint>

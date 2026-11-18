@@ -1,0 +1,5 @@
+<resources>
+    <string name="subpanel_footer_hint">OK 确认 · 返回键上一层</string>
+    <string name="channel_count">%1$d 频道</string>
+    <string name="probe_progress">%1$d / %2$d\n\n%3$s</string>
+</resources>

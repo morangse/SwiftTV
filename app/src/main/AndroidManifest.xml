@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <queries><intent><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/></intent></queries>
+    <uses-feature android:name="android.software.leanback" android:required="false"/>
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false"/>
+    <application android:name=".SwiftTvApplication" android:label="SwiftTV" android:theme="@style/AppTheme"
+        android:icon="@mipmap/app_icon" android:roundIcon="@mipmap/app_icon" android:banner="@drawable/tv_banner"
+        android:allowBackup="false" android:fullBackupContent="@xml/full_backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="true"
+        android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true"
+            android:screenOrientation="landscape" android:launchMode="singleTop"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|smallestScreenSize|screenLayout"
+            tools:ignore="DiscouragedApi">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <receiver android:name=".BootCompletedReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter>
+        </receiver>
+        <receiver android:name=".StartupRetryReceiver" android:exported="false"/>
+        <service android:name=".StartupGuardService" android:label="@string/startup_guard_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/startup_accessibility"/>
+        </service>
+        <service android:name=".StartupRevivalListener" android:label="@string/startup_revival_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter>
+        </service>
+    </application>
+</manifest>

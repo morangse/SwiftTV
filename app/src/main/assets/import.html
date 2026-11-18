@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SwiftTV · 电视局域网管理台</title>
+<style>
+:root{color-scheme:dark;--bg:#07090d;--surface:#11151e;--ink:#f6f8fc;--muted:#949eb0;--accent:#f3f6fb;--accent-ink:#0a0d13;--line:#1e2433;--danger:#f27474}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:680px;padding:28px 22px 48px;margin:auto}header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:20px}
+.brand{font:600 21px system-ui,sans-serif;letter-spacing:-.4px}.status{font-size:12px;color:var(--accent);letter-spacing:1.5px}.dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:7px;vertical-align:middle}
+.eyebrow{margin-top:34px;font-size:11px;letter-spacing:2.5px;color:var(--accent)}h1{font-size:clamp(28px,7vw,42px);font-weight:600;line-height:1.24;letter-spacing:-.8px;margin:12px 0}
+.intro{font-size:15px;line-height:1.8;color:var(--muted);max-width:500px}
+.tabs{display:flex;gap:24px;border-bottom:1px solid var(--line);margin:30px 0 22px;overflow-x:auto}.tab{font-size:15px;padding:0 2px 12px;background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);border-radius:0;white-space:nowrap}.tab[aria-selected=true]{border-color:var(--accent);color:var(--ink)}
+label{display:block;font-size:13px;margin:16px 0 8px;color:#d6d3cc}input{display:block;width:100%;padding:14px 15px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:15px inherit;outline:0}
+input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}input::placeholder{color:#6e6b66}input[type=file]{padding:20px 15px;border-style:dashed}
+button{cursor:pointer;font:500 15px inherit;border:0;border-radius:999px}.action{width:100%;padding:15px 22px;margin-top:20px;background:var(--accent);color:var(--accent-ink);font-weight:600}.action:disabled{opacity:.4;cursor:wait}
+.secondary{padding:8px 15px;background:var(--surface);color:var(--ink);border:1px solid var(--line);font-size:13px}.danger{color:var(--danger);border-color:#442b28}
+.chip{display:inline-block;margin-top:10px;padding:6px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--accent);font-size:12px;cursor:pointer}
+.note{font-size:12px;line-height:1.75;color:var(--muted)}.preview{margin-top:24px;border-top:1px solid var(--line);padding-top:22px}.counts{display:flex;gap:32px;padding-bottom:14px}.count{font:600 36px system-ui,sans-serif;color:var(--accent)}.count small{display:block;font:12px inherit;color:var(--muted);margin-top:4px}
+ul{padding:0;list-style:none;margin:0}li{padding:11px 0;border-top:1px solid #1e1e23;font-size:14px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.sub-meta{font-size:12px;color:var(--muted);margin-top:3px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;margin-top:18px}
+#message{margin-top:18px;line-height:1.75;font-size:14px;white-space:pre-line}#message.error{color:var(--danger)}.hidden{display:none!important}
+footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-size:11px;line-height:1.85;color:var(--muted)}
+</style>
+<main>
+<header><span class="brand">SwiftTV</span><span class="status"><i class="dot"></i>局域网配对</span></header>
+<section id="editor">
+<h1>把喜欢的频道，<br>带到电视上。</h1>
+<p class="intro">添加频道表、配置节目单（EPG）或管理已有订阅。支持识别 M3U 附带的远程台标。</p>
+<div class="tabs" role="tablist">
+ <button type="button" class="tab" role="tab" aria-selected="true" id="urlTab">订阅地址</button>
+ <button type="button" class="tab" role="tab" aria-selected="false" id="fileTab">M3U 文件</button>
+ <button type="button" class="tab hidden" role="tab" aria-selected="false" id="manageTab">订阅与节目单</button>
+</div>
+<form id="importForm">
+ <div id="urlPanel">
+  <label for="url">频道表地址（M3U）</label>
+  <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="none" placeholder="https://elykia093.github.io/HA-CMCC-IPTV/index.m3u">
+  <button type="button" class="chip" id="fillElykiaBtn">填入 HA-CMCC-IPTV 全量源</button>
+ </div>
+ <div id="filePanel" class="hidden">
+  <label for="file">选择本地 M3U 频道表</label>
+  <input id="file" type="file" accept=".m3u,.m3u8,text/plain,application/x-mpegURL">
+ </div>
+ <label for="subName">备注名称（可选）</label>
+ <input id="subName" type="text" maxlength="60" autocomplete="off" placeholder="留空则默认使用域名或文件名">
+ <p class="note">支持 UTF-8 频道表，最大 2 MB。若 M3U 头部含 x-tvg-url / url-tvg 节目单会自动识别。</p>
+ <button class="action" id="previewButton" type="submit">预览频道 →</button>
+</form>
+<section id="preview" class="preview hidden" aria-label="频道预览">
+ <div class="counts"><div class="count"><span id="channelCount"></span><small>个频道</small></div><div class="count"><span id="sourceCount"></span><small>条线路</small></div></div>
+ <ul id="channels"></ul>
+ <button class="action" id="commitButton" type="button">保存到电视</button>
+</section>
+<section id="managePanel" class="hidden" aria-label="管理电视订阅与节目单">
+ <div class="card">
+  <label for="epgUrl" style="margin-top:0">自定义 XMLTV 节目单地址（支持 .xml / .xml.gz）</label>
+  <input id="epgUrl" type="url" inputmode="url" autocomplete="off" autocapitalize="none" placeholder="https://epg.zsdc.eu.org/t.xml（留空则清除）">
+  <button class="secondary" id="saveEpgBtn" type="button" style="margin-top:12px">保存节目单设置</button>
+ </div>
+ <div class="card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+   <strong style="font-size:14px">已保存的订阅</strong>
+   <button class="secondary" id="refreshSubsBtn" type="button">刷新全部订阅</button>
+  </div>
+  <ul id="subList"></ul>
+ </div>
+</section>
+</section>
+<div id="message" role="status" aria-live="polite"></div>
+<footer>SwiftTV / 0.3<br>配对页面有效期为 5 分钟，仅在同一局域网内使用，不会泄露完整线路密钥。</footer>
+</main>
+<script>
+(function(){
+'use strict';
+const token=new URLSearchParams(location.hash.slice(1)).get('token')||'';
+history.replaceState(null,'',location.pathname);
+const el=id=>document.getElementById(id);
+let mode='url',previewId='',busy=false;
+function message(text,error){el('message').textContent=text;el('message').className=error?'error':''}
+function switchTab(value){
+ if(busy)return;mode=value;
+ ['url','file','manage'].forEach(k=>el(k+'Tab').setAttribute('aria-selected',String(value===k)));
+ el('importForm').classList.toggle('hidden',value==='manage');
+ el('urlPanel').classList.toggle('hidden',value!=='url');
+ el('filePanel').classList.toggle('hidden',value!=='file');
+ el('managePanel').classList.toggle('hidden',value!=='manage');
+ invalidate();
+ if(value==='manage')loadState();
+}
+function invalidate(){previewId='';el('preview').classList.add('hidden')}
+el('urlTab').onclick=()=>switchTab('url');el('fileTab').onclick=()=>switchTab('file');el('manageTab').onclick=()=>switchTab('manage');
+el('url').oninput=invalidate;el('file').onchange=invalidate;
+el('fillElykiaBtn').onclick=function(){el('url').value='https://elykia093.github.io/HA-CMCC-IPTV/index.m3u';if(!el('subName').value)el('subName').value='河南移动全量源 (Elykia)';invalidate()};
+async function request(method,path,data){
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),24000);
+ try{
+  const opts={method:method,headers:{'X-SwiftTV-Token':token},signal:controller.signal};
+  if(data!==undefined){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(data)}
+  const r=await fetch(path,opts);const body=await r.json();if(!r.ok)throw new Error(body.error||'请求失败');return body;
+ }catch(e){
+  if(e.name==='AbortError')throw new Error('请求超时，请确认电视仍在配对页面后重试');
+  if(e instanceof TypeError)throw new Error('无法连接电视，请保持配对页面打开；若二维码已过期，请重新扫码');
+  throw e;
+ }finally{clearTimeout(timeout)}
+}
+function setBusy(value){busy=value;el('previewButton').disabled=value||!token;el('commitButton').disabled=value||!token}
+async function loadState(){
+ if(!token)return;
+ try{
+  const s=await request('GET','/api/state');
+  el('manageTab').classList.remove('hidden');
+  if(s.customEpgOrigin)el('epgUrl').placeholder='当前已配置：'+s.customEpgOrigin+'（输入新地址替换，留空清除）';
+  else el('epgUrl').placeholder='https://epg.zsdc.eu.org/t.xml（可选）';
+  el('subList').replaceChildren();
+  const subs=s.subscriptions||[];
+  if(!subs.length){const li=document.createElement('li');li.textContent='暂无自定义订阅';el('subList').appendChild(li);return}
+  subs.forEach(function(sub){
+   const li=document.createElement('li'),info=document.createElement('div'),title=document.createElement('div'),meta=document.createElement('div');
+   title.textContent=sub.name;meta.className='sub-meta';meta.textContent=sub.origin+(sub.hasEpg?' · 含节目单':'');
+   info.appendChild(title);info.appendChild(meta);li.appendChild(info);
+   if(!sub.builtin){
+    const del=document.createElement('button');del.type='button';del.className='secondary danger';del.textContent='删除';
+    del.onclick=async function(){
+     if(busy)return;setBusy(true);
+     try{await request('POST','/api/manage',{action:'deleteSubscription',id:sub.id});message('已删除订阅：'+sub.name,false);await loadState()}
+     catch(e){message(e.message,true)}finally{setBusy(false)}
+    };
+    li.appendChild(del);
+   }
+   el('subList').appendChild(li);
+  });
+ }catch(_){}
+}
+el('saveEpgBtn').onclick=async function(){
+ if(busy||!token)return;setBusy(true);
+ try{const r=await request('POST','/api/manage',{action:'setEpgUrl',epgUrl:el('epgUrl').value.trim()});el('epgUrl').value='';message(r.message||'节目单设置已更新',false);await loadState()}
+ catch(e){message(e.message,true)}finally{setBusy(false)}
+};
+el('refreshSubsBtn').onclick=async function(){
+ if(busy||!token)return;setBusy(true);
+ try{const r=await request('POST','/api/manage',{action:'refresh'});message(r.message||'已在电视后台触发刷新',false)}
+ catch(e){message(e.message,true)}finally{setBusy(false)}
+};
+el('importForm').onsubmit=async function(event){
+ event.preventDefault();if(busy)return;setBusy(true);invalidate();message('正在读取频道表…',false);
+ try{
+  const customName=el('subName').value.trim();
+  let data;if(mode==='url'){const url=el('url').value.trim();if(!url)throw new Error('请填写订阅地址');data={url:url,name:customName}}
+  else{const file=el('file').files[0];if(!file)throw new Error('请选择 M3U 文件');if(file.size>2097152)throw new Error('文件不能超过 2 MB');data={content:await file.text(),name:customName||file.name}}
+  const r=await request('POST','/api/import',data);previewId=r.previewId;
+  el('channelCount').textContent=r.channelCount;el('sourceCount').textContent=r.sourceCount;
+  el('channels').replaceChildren();r.channels.forEach(function(name){const li=document.createElement('li');li.textContent=name;el('channels').appendChild(li)});
+  el('preview').classList.remove('hidden');message(r.skipped?'已跳过 '+r.skipped+' 条无效记录。请确认频道后保存。':'预览就绪。请确认频道后保存。',false)
+ }catch(e){message(e.message||'无法连接电视，请重新扫码',true)}finally{setBusy(false)}
+};
+el('commitButton').onclick=async function(){
+ if(!previewId||busy)return;setBusy(true);message('正在保存…',false);
+ try{const r=await request('POST','/api/commit',{previewId:previewId});invalidate();el('url').value='';el('subName').value='';message('已保存 '+r.channelCount+' 个频道。\n电视已自动加载频道与台标。',false);loadState()}
+ catch(e){message(e.message||'保存失败，请重新扫码',true)}finally{setBusy(false)}
+};
+if(!token){message('此页面缺少配对信息，请扫描电视上的二维码重新打开。',true);setBusy(false)}else{loadState()}
+})();
+</script>
+</html>

@@ -1,0 +1,7 @@
+#EXTM3U
+#EXTINF:-1 tvg-id="demo-one" group-title="测试频道",测试频道一
+https://example.invalid/live/one.m3u8
+#EXTINF:-1 tvg-id="demo-one" group-title="测试频道",测试频道一
+https://backup.example.invalid/live/one.m3u8
+#EXTINF:-1 tvg-id="demo-two" group-title="测试频道",测试频道二
+https://example.invalid/live/two.m3u8

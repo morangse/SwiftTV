@@ -1,0 +1,5 @@
+<resources>
+    <string name="startup_guard_name">SwiftTV 开机助手</string>
+    <string name="startup_guard_description">在开机、待机唤醒或系统回收后恢复直播。仅识别前台应用包名，不读取页面文字、不过滤遥控器按键。主动离开或关闭自启动后不再拉回。需要你在系统设置授权，可随时关闭。</string>
+    <string name="startup_revival_name">SwiftTV 恢复辅助（可选）</string>
+</resources>
