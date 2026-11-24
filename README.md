@@ -49,6 +49,26 @@
 
 **公开版使用用户自行添加的频道表。** [M3U 格式样例](samples/example.m3u)可帮助你整理订阅，示例地址仅用于说明格式。
 
+## 手机端局域网安装助手
+
+仓库内的 [`installer/`](installer/) 是一个独立的 Android 手机应用，用于在没有应用商店、也不想插 U 盘时，通过局域网 ADB 把 SwiftTV 安装到电视：
+
+- 自动扫描同一网段的 5555 端口，并通过 mDNS 发现 Android 11+ 无线调试设备
+- 支持手动 IP、电视授权弹窗重试、6 位配对码配对，以及签名冲突后的卸载重装
+- 内置 SwiftTV 0.3.2 安装包，可在手机上更换为其他本地 APK
+- 识别电视品牌、型号、Android 版本和已安装的 SwiftTV 版本
+
+构建方式（独立 Gradle 工程）：
+
+```powershell
+cd installer
+.\gradlew.bat :app:assembleRelease --no-daemon
+```
+
+产物为 `installer/app/build/outputs/apk/release/app-release.apk`。电视端准备步骤、品牌差异和已知限制见 [installer/README.md](installer/README.md)。
+
+也可以在仓库根目录运行 `.\scripts\build-installer.ps1`，自动执行测试、debug/release 构建并把 APK 复制到 `output/delivery/`。
+
 ## 启动后暂无画面
 
 SwiftTV 自动尝试同频道已有的备用线路。启动后约 15 秒没有首帧，或候选线路提前耗尽时，可以从提示直接预览 Guovin 或打开控制中心。首次使用且频道表为空时，控制中心会聚焦 Guovin 导入入口。保存导入前可先预览频道。

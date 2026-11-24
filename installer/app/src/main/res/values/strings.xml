@@ -1,0 +1,37 @@
+<resources>
+    <string name="app_name">SwiftTV 安装助手</string>
+    <string name="app_subtitle">局域网 ADB · 一键装到电视</string>
+    <string name="network_title">本机网络</string>
+    <string name="scan">扫描电视</string>
+    <string name="scanning">正在扫描局域网…</string>
+    <string name="devices_title">发现的设备</string>
+    <string name="no_devices">还没有发现电视。请确认电视与手机连接同一个 Wi‑Fi，并在电视上开启 ADB 调试。</string>
+    <string name="manual_title">手动连接</string>
+    <string name="manual_hint">电视 IP 地址</string>
+    <string name="port_hint">端口</string>
+    <string name="connect">连接</string>
+    <string name="pair_wireless">无线调试配对</string>
+    <string name="target_title">要安装的应用</string>
+    <string name="change_apk">更换安装包</string>
+    <string name="install_title">安装到电视</string>
+    <string name="install_button">安装 SwiftTV</string>
+    <string name="install_ready">连接电视后即可安装</string>
+    <string name="auto_open">安装完成后自动打开</string>
+    <string name="help_title">电视端准备</string>
+    <string name="help_body">1. 手机和电视连接同一个 Wi‑Fi，不要使用访客网络或开启 AP 隔离。\n\n2. 在电视上打开开发者选项：设置 → 关于 → 连续点击“版本号”7 次，然后进入“开发者选项”，打开“USB 调试”。\n\n3. 小米/Redmi：设置 → 关于 → 产品型号连点 7 次；部分机型还需打开“网络调试”。\n海信：设置 → 关于 → 版本号连点；开发者选项 → USB 调试。\nTCL/雷鸟：设置 → 系统 → 关于 → 版本号连点；开发者选项 → USB 调试。\n索尼/Google TV：设置 → 系统 → 关于 → 版本号连点；开发者选项 → USB 调试。Android 11+ 还可使用“无线调试”。\n创维/酷开、长虹、华为智慧屏、荣耀智慧屏：设置 → 关于本机 → 版本号连点，再打开开发者选项。\n\n4. 首次连接时电视会弹出“允许 USB 调试吗？”，请点“允许”，建议勾选“始终允许”。\n\n5. Android 11+ 电视若没有 5555 直连，请打开“无线调试”→“使用配对码配对设备”，把屏幕上的配对端口和 6 位配对码填到本应用。\n\n6. 部分电视只支持 USB ADB，不开放网络调试；这种情况下需要先用电脑执行 adb tcpip 5555，或使用电视自带的网络调试开关。</string>
+    <string name="log_title">运行日志</string>
+    <string name="copy_log">复制</string>
+    <string name="clear_log">清空</string>
+    <string name="pair_dialog_title">无线调试配对</string>
+    <string name="pair_host">电视 IP</string>
+    <string name="pair_port">配对端口</string>
+    <string name="pair_code">6 位配对码</string>
+    <string name="connect_port">连接端口（无线调试主界面显示）</string>
+    <string name="pair_help">在电视的“无线调试”中打开“使用配对码配对设备”，电视会显示配对端口和 6 位配对码。配对成功后，应用会尝试使用 mDNS 发现的连接端口；如果没有发现，请填写无线调试主界面上的端口。</string>
+    <string name="cancel">取消</string>
+    <string name="pair_and_connect">配对并连接</string>
+    <string name="confirm">确定</string>
+    <string name="uninstall_and_install">卸载后重装</string>
+    <string name="signature_conflict_title">签名不一致</string>
+    <string name="signature_conflict_message">电视上已安装的 SwiftTV 与本安装包签名不同，无法直接覆盖。需要先卸载旧版本再安装，电视上的收藏和设置会丢失。是否继续？</string>
+</resources>

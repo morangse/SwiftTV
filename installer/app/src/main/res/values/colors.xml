@@ -1,0 +1,18 @@
+<resources>
+    <color name="bg">#080B10</color>
+    <color name="surface">#121820</color>
+    <color name="surface_high">#18212B</color>
+    <color name="stroke">#26313D</color>
+    <color name="accent">#A8D8F4</color>
+    <color name="accent_dim">#5E8FA8</color>
+    <color name="accent_soft">#1E3442</color>
+    <color name="text_primary">#F3F6F8</color>
+    <color name="text_secondary">#93A2AE</color>
+    <color name="text_tertiary">#6B7A86</color>
+    <color name="success">#7ED6A7</color>
+    <color name="success_soft">#1D3A2E</color>
+    <color name="warning">#F2C66D</color>
+    <color name="warning_soft">#3A3020</color>
+    <color name="error">#F28B82</color>
+    <color name="ic_launcher_background">#05070A</color>
+</resources>

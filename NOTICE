@@ -8,6 +8,13 @@ Runtime components:
 - Kotlin (Apache-2.0): https://github.com/JetBrains/kotlin
 - OkHttp and Okio (Apache-2.0): https://github.com/square/okhttp and https://github.com/square/okio
 - ZXing (Apache-2.0): https://github.com/zxing/zxing
+
+The optional phone installer in `installer/` additionally uses:
+- Kadb (Apache-2.0): https://github.com/flyfishxu/Kadb
+- Conscrypt (Apache-2.0): https://github.com/google/conscrypt
+- Bouncy Castle (MIT-style): https://www.bouncycastle.org/licence.html
+- Kotlinx Coroutines (Apache-2.0): https://github.com/Kotlin/kotlinx.coroutines
+- Material Components for Android (Apache-2.0): https://github.com/material-components/material-components-android
 Dependency licenses remain with their respective projects.
 
 The SwiftTV launcher icon and TV banner use artwork supplied by the project
