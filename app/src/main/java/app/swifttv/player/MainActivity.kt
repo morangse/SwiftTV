@@ -560,11 +560,20 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
         panel.addSectionHeader("订阅源、台标与节目单（EPG）")
         panel.addActionRow("手机扫码管理台", "同一 Wi-Fi 扫码导入 M3U、配置节目单与管理订阅", "打开二维码 →") { _, _ -> showPairing() }
+        val guovinIpv6Row = panel.addActionRow("导入 Guovin 国内 IPv6 频道（推荐）", "适合中国移动 / 联通 / 电信宽带，含国内骨干 IPv6 直连线路", "拉取预览 →") { _, _ ->
+            fetchPreset(PlaylistPreset.GUOVIN_IPV6, tryOnSave = true)
+        }
+        val guovinDualRow = panel.addActionRow("导入 Guovin 双栈全量频道（IPv6 + IPv4）", "自动聚合国内 IPv6 与公网 IPv4，按当前网络智能优先国内源", "拉取预览 →") { _, _ ->
+            fetchPreset(PlaylistPreset.GUOVIN_ALL, tryOnSave = true)
+        }
+        panel.addActionRow("导入范明明精选 IPv6 频道（82 台）", "央视卫视纯净版 · 移动骨干直连 · 自带节目单", "拉取预览 →") { _, _ ->
+            fetchPreset(PlaylistPreset.FANMINGMING_IPV6, tryOnSave = true)
+        }
+        panel.addActionRow("导入 Guovin IPv4 备用频道", "仅 IPv4 线路（海外节点较多，无 IPv6 时作为补充）", "拉取预览 →") { _, _ ->
+            fetchPreset(PlaylistPreset.GUOVIN, tryOnSave = controller?.current == null || controller?.exhausted == true)
+        }
         panel.addActionRow("导入河南移动全量源（HA-CMCC-IPTV）", "预览 Elykia 外部订阅 · 需河南移动 IPTV 网络", "拉取预览 →") { _, _ ->
             fetchPreset(PlaylistPreset.HENAN)
-        }
-        val guovinRow = panel.addActionRow("导入 Guovin 公网频道（iptv-api）", "官方 IPv4 频道表，可预览后保存", "拉取预览 →") { _, _ ->
-            fetchPreset(PlaylistPreset.GUOVIN, tryOnSave = controller?.current == null || controller?.exhausted == true)
         }
         panel.addActionRow("手动输入订阅地址", "输入任意 HTTP/HTTPS M3U 频道表链接", "输入 →") { _, _ -> manualImport() }
         panel.addActionRow("从电视本地文件导入", "选择本地存储中的 .m3u / .m3u8 文件", "浏览 →") { _, _ ->
@@ -598,7 +607,9 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             val license = assets.open("licenses/Apache-2.0.txt").bufferedReader().use { it.readText() }
             showModal("Apache-2.0", license, primaryLabel = "关闭", secondaryLabel = null) { true }
         }
-        if (focusPreset) guovinRow.requestFocus() else panel.focusFirstRow()
+        if (focusPreset) {
+            if (controller?.hasGlobalIpv6() == true) guovinIpv6Row.requestFocus() else guovinDualRow.requestFocus()
+        } else panel.focusFirstRow()
     }
 
     private fun fetchPreset(preset: PlaylistPreset, tryOnSave: Boolean = false) {
@@ -979,7 +990,13 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         val selected = playable.firstOrNull { it.id == state.lastChannel } ?: playable.firstOrNull()
         selected?.let { channel ->
             val alternatives = channel.sources.filter { it.url in importUrls[channel.id].orEmpty() }
-            val source = SourceRanking.rank(alternatives, state.stats, System.currentTimeMillis()).firstOrNull()
+            val source = SourceRoutes.rank(
+                alternatives,
+                state.stats,
+                System.currentTimeMillis(),
+                controller?.effectiveRoutingMode() ?: RoutingMode.AUTO,
+                ipv6Available = controller?.hasGlobalIpv6() ?: true
+            ).firstOrNull()
             controller?.tune(channel, preferred = source)
         }
         refreshEpg(true)
@@ -1106,21 +1123,29 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             return
         }
         val regional = issue == StartupSourceIssue.REGIONAL_NO_PICTURE
-        val guovinSaved = store.snapshot().subscriptions.any { it.id in PlaylistPreset.GUOVIN.subscriptionIds }
+        val hasIpv6 = controller?.hasGlobalIpv6() == true
+        val subs = store.snapshot().subscriptions
+        val domesticPresetSaved = subs.any {
+            it.id in PlaylistPreset.GUOVIN_IPV6.subscriptionIds ||
+                it.id in PlaylistPreset.GUOVIN_ALL.subscriptionIds ||
+                it.id in PlaylistPreset.FANMINGMING_IPV6.subscriptionIds
+        }
+        val recommendedPreset = if (hasIpv6) PlaylistPreset.GUOVIN_IPV6 else PlaylistPreset.GUOVIN_ALL
         val reason = if (regional) "当前网络上尝试的河南移动线路暂无画面。"
-            else "上次频道及启动时尝试的线路暂无画面。"
-        val next = if (guovinSaved) "Guovin 已导入。可以查看此频道的备用线路，或在控制中心刷新订阅。"
-            else "可以预览 Guovin IPv4 并将线路加到现有频道表。"
+            else "当前线路连接超时或暂无画面（部分纯 IPv4 海外源在国内宽带较难直连）。"
+        val next = if (domesticPresetSaved) "已导入国内 IPv6 / 双栈源。可以查看此频道的其他线路，或在控制中心尝试「范明明精选 IPv6」或刷新订阅。"
+            else if (hasIpv6) "检测到本机已开启 IPv6，推荐一键预览「Guovin 国内 IPv6」，直连国内骨干网更流畅。"
+            else "推荐一键预览「Guovin 双栈全量（IPv6+IPv4）」，或在路由器开启 IPv6 后获得更佳国内线路体验。"
         showModal(
             title = "启动后暂无画面",
             message = reason + "\n\n" + next,
-            primaryLabel = if (guovinSaved) "查看线路" else "预览 Guovin IPv4",
+            primaryLabel = if (domesticPresetSaved) "查看线路" else if (hasIpv6) "预览 Guovin IPv6" else "预览 Guovin 双栈",
             secondaryLabel = "稍后",
             extraLabel = "调整信号源",
             onExtra = { showSettings(focusPreset = true) }
         ) {
-            if (guovinSaved) showOptions(channel)
-            else fetchPreset(PlaylistPreset.GUOVIN, tryOnSave = true)
+            if (domesticPresetSaved) showOptions(channel)
+            else fetchPreset(recommendedPreset, tryOnSave = true)
             true
         }
         startupSourceDialog = modalHost.getChildAt(0)

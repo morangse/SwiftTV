@@ -7,9 +7,9 @@
 <p align="center"><strong>为电视遥控器设计的 Android TV 直播播放器</strong></p>
 
 <p align="center">
-  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.3.2/SwiftTV-0.3.2.apk"><strong>下载 APK</strong></a>
+  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.3.3/SwiftTV-0.3.3.apk"><strong>下载 APK</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.3.2">v0.3.2 发行说明</a>
+  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.3.3">v0.3.3 发行说明</a>
   &nbsp;·&nbsp;
   <a href="#安装与导入">快速上手</a>
 </p>
@@ -29,7 +29,7 @@
 | **频道画廊与收藏** | 按分组浏览频道，支持按央视编号排列、识别 M3U 附带的台标和收藏常看频道。方向键先移动焦点，按确认后再换台。 |
 | **原生播放与备用线路** | 基于 Media3 ExoPlayer 播放 HTTP/HTTPS HLS、MPEG-TS 和 HTTP-FLV。同一频道可有多条线路，播放异常时按策略恢复或尝试备用线路，也能手动切换。 |
 | **频道表与节目单** | 支持 M3U 网址、本地文件和局域网扫码导入。保存前可预览，远程订阅刷新失败时保留旧表。配置 XMLTV（.xml / .xml.gz）后可查看当前和下一档节目。 |
-| **自动选路与无画面提示** | 根据当前网络的连接失败和实际出画结果调整公网与河南移动线路的优先级。启动后没有画面时，可以直接预览 Guovin IPv4 或进入信号源设置。 |
+| **自动选路与无画面提示** | 实时检测设备全局 IPv6 能力并按当前网络优先排序国内运营商 IPv6 与国内源，减少海外中转超时。启动后没有画面时，自动按网络推荐预览 Guovin 国内 IPv6 / 双栈或进入信号源设置。 |
 | **开机恢复** | 默认开启开机自动看直播，并记住上次播放的频道。可在「控制中心」关闭。实际开机和待机恢复取决于设备固件与系统权限。 |
 | **大屏显示** | 播放画面全屏，画廊和菜单使用半透明面板。低配设备可在「视觉与毛玻璃效果」切换「极速纯色」。 |
 | **线路检测与诊断** | 支持对单个频道或当前分类的线路测速，查看首帧和上次播放结果。通过手机扫码导出脱敏 JSON，方便复现播放问题。 |
@@ -43,8 +43,8 @@
 
 ## 安装与导入
 
-1. 在电视上安装 [SwiftTV-0.3.2.apk](https://github.com/morangse/SwiftTV/releases/download/v0.3.2/SwiftTV-0.3.2.apk)。可将 APK 复制到 U 盘，再使用电视的文件管理器打开。校验文件见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.3.2/SHA256SUMS.txt)。
-2. 打开 SwiftTV 的「控制中心」，添加你有权使用的 M3U 频道表。可选择「导入 Guovin 公网频道（iptv-api）」预览 IPv4 频道表，也可以手动输入订阅地址、选择本地文件，或用同一局域网中的手机扫码导入。
+1. 在电视上安装 [SwiftTV-0.3.3.apk](https://github.com/morangse/SwiftTV/releases/download/v0.3.3/SwiftTV-0.3.3.apk)。可将 APK 复制到 U 盘，再使用电视的文件管理器打开，或使用下方「手机端局域网安装助手」无线推送。校验文件见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.3.3/SHA256SUMS.txt)。
+2. 打开 SwiftTV 的「控制中心」，添加你有权使用的 M3U 频道表。中国移动 / 联通 / 电信宽带优先推荐「导入 Guovin 国内 IPv6 频道」或「导入范明明精选 IPv6 频道」，不确定是否开启 IPv6 可选「导入 Guovin 双栈全量频道（IPv6 + IPv4）」，也可手动输入订阅地址、选择本地文件或手机扫码导入。
 3. 在预览中确认频道，保存后选台播放。若频道表附带有效节目单，SwiftTV 会读取它。也可以在控制中心填写独立的 XMLTV 地址。
 
 **公开版使用用户自行添加的频道表。** [M3U 格式样例](samples/example.m3u)可帮助你整理订阅，示例地址仅用于说明格式。
@@ -55,7 +55,7 @@
 
 - 自动扫描同一网段的 5555 端口，并通过 mDNS 发现 Android 11+ 无线调试设备
 - 支持手动 IP、电视授权弹窗重试、6 位配对码配对，以及签名冲突后的卸载重装
-- 内置 SwiftTV 0.3.2 安装包，可在手机上更换为其他本地 APK
+- 内置 SwiftTV 0.3.3 安装包，可在手机上更换为其他本地 APK
 - 识别电视品牌、型号、Android 版本和已安装的 SwiftTV 版本
 
 构建方式（独立 Gradle 工程）：

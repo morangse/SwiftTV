@@ -194,6 +194,20 @@ class PlaybackController(
             ?.networkHandle
     }
 
+    fun hasGlobalIpv6(): Boolean {
+        val active = connectivity?.activeNetwork ?: return false
+        val link = connectivity.getLinkProperties(active) ?: return false
+        return link.linkAddresses.any { la ->
+            val addr = la.address
+            addr is java.net.Inet6Address &&
+                !addr.isLoopbackAddress &&
+                !addr.isLinkLocalAddress &&
+                !addr.isSiteLocalAddress &&
+                !addr.isMulticastAddress &&
+                (addr.address[0].toInt() and 0xfe) != 0xfc
+        }
+    }
+
     fun effectiveRoutingMode(): RoutingMode = automaticRouting.effective(activeNetworkId(), RoutingMode.read(context))
 
     fun tune(
@@ -219,7 +233,14 @@ class PlaybackController(
         requestedAt = requestedTime
         store.remember(channel.id)
         if (explicitRetry) channel.sources.forEach { store.clearCooldown(it.url) }
-        queue = SourceRoutes.rank(channel.sources, store.snapshot().stats, System.currentTimeMillis(), effectiveRoutingMode(), preferred)
+        queue = SourceRoutes.rank(
+            channel.sources,
+            store.snapshot().stats,
+            System.currentTimeMillis(),
+            effectiveRoutingMode(),
+            preferred,
+            ipv6Available = hasGlobalIpv6()
+        )
         queueIndex = 0
         playQueued()
     }
@@ -395,7 +416,10 @@ class PlaybackController(
                 if (firstFrame && player.playbackState == Player.STATE_BUFFERING) rebufferUnflushed += delta
                 val position = player.currentPosition
                 if (position != lastPosition) { noProgressAt = now; lastPosition = position }
-                if (!firstFrame && now - sourceStartedAt >= 8000) fail("八秒内没有视频画面", reachabilityFailure = lastFormat == null)
+                val firstFrameLimitMs = if (lastFormat != null) 12_000L else 8_000L
+                if (!firstFrame && now - sourceStartedAt >= firstFrameLimitMs) {
+                    fail(if (lastFormat != null) "十二秒内未渲染视频首帧" else "八秒内没有视频画面", reachabilityFailure = lastFormat == null)
+                }
                 else if (bufferingAt > 0 && now - bufferingAt >= 8000) recoverOrFail(null, "持续缓冲超过八秒")
                 else if (firstFrame && player.isPlaying && now - noProgressAt >= 8000) recoverOrFail(null, "播放进度停止")
                 else if (probing && firstFrame && now - probeFirstFrameAt >= 12000) {
@@ -460,7 +484,13 @@ class PlaybackController(
         val index = channels.indexOfFirst { it.id == current?.id }
         if (channels.size < 2 || index < 0) return
         val next = channels[(index + 1) % channels.size]
-        val source = SourceRoutes.rank(next.sources, store.snapshot().stats, System.currentTimeMillis(), effectiveRoutingMode()).firstOrNull() ?: return
+        val source = SourceRoutes.rank(
+            next.sources,
+            store.snapshot().stats,
+            System.currentTimeMillis(),
+            effectiveRoutingMode(),
+            ipv6Available = hasGlobalIpv6()
+        ).firstOrNull() ?: return
         warmCall?.cancel()
         warmCall = network.warm(source)
     }
