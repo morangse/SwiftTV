@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>SwiftTV · 纯净轻量 Android TV 直播播放器</title>
+  <meta name="description" content="SwiftTV 是一款专为电视遥控器设计的纯本地 Android TV 播放器（Apache-2.0），不内置任何片源。支持开箱扫码导源、手机安装助手一键推送、单频道 HLS 与并发竞速极速切台、4 挡长辈大字实时缩放。">
+  <link rel="icon" type="image/png" href="assets/img/logo.png">
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <!-- Ambient optical backdrop (compositor-only, subtle film grain + slow aurora, pausable via #motionToggle) -->
+  <div class="ambient" aria-hidden="true">
+    <div class="ambient-horizon"></div>
+    <div class="ambient-grid"></div>
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="ambient-noise"></div>
+  </div>
+
+  <!-- Shrinking Frosted Top Navigation -->
+  <header class="topbar" id="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="#top" aria-label="SwiftTV 首页">
+        <img class="brand-logo" src="assets/img/logo.png" width="34" height="34" alt="SwiftTV 标志">
+        <span class="brand-name">SwiftTV</span>
+        <span class="brand-tag" id="navVersionTag">v0.4.2</span>
+      </a>
+
+      <nav class="nav-links" aria-label="主导航">
+        <a href="#features">核心特性</a>
+        <a href="#engine">极速竞速演示</a>
+        <a href="#showcase">大屏实拍</a>
+        <a href="#sources">测试与配置</a>
+        <a href="#downloads">下载</a>
+      </nav>
+
+      <div class="topbar-actions">
+        <button type="button" class="btn-ghost btn-sm" id="motionToggle">暂停背景动效</button>
+        <a class="btn-porcelain btn-sm sheen-btn magnetic" id="navDownloadBtn" href="#downloads">获取 APK</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero + Live Interactive TV Simulator -->
+    <section class="hero container" id="top">
+      <div class="hero-copy">
+        <div class="pill-badge" data-stagger="0">
+          <span class="signal-dot" aria-hidden="true"></span>
+          <span>纯空壳本地播放器 · 无内置片源 · Apache-2.0</span>
+        </div>
+
+        <h1 data-stagger="1">
+          为大屏遥控器而生的<br>
+          <span class="text-crystal">光学晶体直播体验</span>
+        </h1>
+
+        <p class="hero-lead" data-stagger="2">
+          专为 Android TV 6.0+ 打造的轻量播放器。零广告、零账号、零内置第三方片源；开箱扫码导源、手机一键直推、多主机 <strong>2.5s 并发竞速切台</strong>，并内置专为长辈优化的 <strong>4 挡即时大字缩放</strong>与<strong>自然上下键换台</strong>。
+        </p>
+
+        <div class="hero-cta" data-stagger="3">
+          <a class="btn-porcelain btn-lg sheen-btn magnetic" id="heroTvDownload" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SwiftTV-0.4.2.apk">
+            <span>下载电视版 APK</span>
+            <span class="btn-meta" id="heroTvMeta">v0.4.2 · 1.5 MB</span>
+          </a>
+          <a class="btn-crystal btn-lg magnetic" id="heroInstallerDownload" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SwiftTV-Installer-1.1.2.apk">
+            <span>手机安装助手</span>
+            <span class="btn-meta" id="heroInstallerMeta">v1.1.2 · 无线装 &amp; 推源</span>
+          </a>
+        </div>
+
+        <div class="hero-meta-links" data-stagger="4">
+          <a id="heroReleaseLink" href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.2" target="_blank" rel="noopener noreferrer">查看 GitHub Release 说明 ↗</a>
+          <span aria-hidden="true">·</span>
+          <a href="https://github.com/morangse/SwiftTV" target="_blank" rel="noopener noreferrer">开源仓库（GitHub）↗</a>
+        </div>
+      </div>
+
+      <!-- Interactive Live TV Cinema Stage -->
+      <div class="hero-stage-wrap" data-stagger="5">
+        <div class="tv-bezel spotlight-surface tilt-stage" role="region" aria-label="SwiftTV 实时大屏交互模拟器">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="tv-screen" id="tvScreen">
+            <img
+              class="tv-backdrop-img"
+              src="assets/img/channel-gallery.jpg"
+              width="1560"
+              height="878"
+              fetchpriority="high"
+              alt="SwiftTV 在 Android TV 播放演示视频时呈现的半透明磨砂界面">
+            <div class="tv-scrim" aria-hidden="true"></div>
+
+            <!-- Simulated Live HUD Capsule -->
+            <div class="sim-hud" id="simHud" data-font="standard">
+              <div class="sim-hud-num" id="simNum">01</div>
+              <div class="sim-hud-divider" aria-hidden="true"></div>
+              <div class="sim-hud-body">
+                <div class="sim-hud-top">
+                  <strong class="sim-hud-name" id="simName">Apple 4K 官方演示流</strong>
+                  <span class="sim-spec" id="simSpec">1080p · HEVC · IPv6 · 310ms</span>
+                </div>
+                <div class="sim-hud-sub" id="simProg">正在播出：多码率 fMP4 自适应演示 · 即将：低延迟片段切换</div>
+                <div class="sim-progress-track" aria-hidden="true">
+                  <div class="sim-progress-fill" id="simProgressFill"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Simulated Mini Channel Ribbon -->
+            <div class="sim-ribbon" id="simRibbon" data-font="standard">
+              <div class="sim-tabs" aria-hidden="true">
+                <span class="sim-tab active">全部</span>
+                <span>测试演示</span>
+                <span>单频道直连</span>
+              </div>
+              <div class="sim-cards" id="simCards" role="list" aria-label="模拟频道卡片">
+                <button type="button" class="sim-card active" data-ch="0">
+                  <span class="sim-card-num">01</span>
+                  <span class="sim-card-title">Apple 4K 测试流</span>
+                  <span class="sim-card-meta">310ms · HLS</span>
+                </button>
+                <button type="button" class="sim-card" data-ch="1">
+                  <span class="sim-card-num">02</span>
+                  <span class="sim-card-title">Mux 演示直播</span>
+                  <span class="sim-card-meta">420ms · HLS</span>
+                </button>
+                <button type="button" class="sim-card" data-ch="2">
+                  <span class="sim-card-num">03</span>
+                  <span class="sim-card-title">Tears of Steel</span>
+                  <span class="sim-card-meta">490ms · HLS</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="tv-chin" aria-hidden="true">
+            <span class="tv-led"></span>
+            <span class="tv-brand-mark">SWIFTTV · SIMULATOR</span>
+          </div>
+        </div>
+
+        <!-- Live Interactive Telemetry Control Deck -->
+        <div class="sim-controls" aria-label="模拟器控制面板">
+          <div class="sim-ctrl-group">
+            <span class="ctrl-label">遥控器换台</span>
+            <div class="btn-row">
+              <button type="button" class="ctrl-btn" id="simKeyUp" title="模拟遥控器上键">↑ 上键</button>
+              <button type="button" class="ctrl-btn" id="simKeyDown" title="模拟遥控器下键">↓ 下键</button>
+              <button type="button" class="ctrl-btn subtle" id="simDirToggle">当前：↓ 下一个</button>
+            </div>
+          </div>
+
+          <div class="sim-ctrl-group">
+            <span class="ctrl-label">长辈大字挡位</span>
+            <div class="btn-row" role="group" aria-label="选择模拟界面字体大小">
+              <button type="button" class="ctrl-btn active" data-font-btn="standard">标准</button>
+              <button type="button" class="ctrl-btn" data-font-btn="large">大号</button>
+              <button type="button" class="ctrl-btn" data-font-btn="elderly">长辈大字</button>
+              <button type="button" class="ctrl-btn" data-font-btn="xlarge">超大字</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bento Grid Features with Pointer Spotlight Reveal -->
+    <section class="section container" id="features">
+      <div class="section-head" data-reveal>
+        <span class="eyebrow">ARCHITECTURE &amp; CRAFT</span>
+        <h2>克制、专注大屏的工程细节</h2>
+        <p>去掉臃肿壳子与弹窗干扰，把每一个字节留给播放稳定性与客厅易用性。</p>
+      </div>
+
+      <div class="bento-grid" id="bentoGrid">
+        <article class="bento-card spotlight-surface" data-reveal style="--reveal-delay: 0ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="card-index">01 · 合规定位</div>
+          <h3>纯空壳零内置，开源可审计</h3>
+          <p>源码与安装包内不携带任何第三方直播源或商业频道预设。收藏、订阅与播放统计完全存于电视本机，不上传云端。</p>
+        </article>
+
+        <article class="bento-card spotlight-surface" data-reveal style="--reveal-delay: 60ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="card-index">02 · 多端导源</div>
+          <h3>开箱扫码 + 手机助手直推</h3>
+          <p>空列表启动直达局域网配对二维码；配合 SwiftTV 安装助手 1.1.2，可在手机粘贴链接或挑选本地 M3U 一键发送至电视确认。</p>
+        </article>
+
+        <article class="bento-card spotlight-surface" data-reveal style="--reveal-delay: 120ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="card-index">03 · 流媒体解析</div>
+          <h3>M3U / 单频道 HLS / FLV 全兼容</h3>
+          <p>除完整 <code class="inline-code">#EXTINF</code> 频道表外，可直接导入单频道 <code class="inline-code">.m3u8</code> 媒体/主清单与 <code class="inline-code">.ts</code>/<code class="inline-code">.flv</code>/fMP4 直播直链，自动归入「单频道直连」。</p>
+        </article>
+
+        <article class="bento-card spotlight-surface" data-reveal style="--reveal-delay: 180ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="card-index">04 · 极速切台</div>
+          <h3>多主机 2.5s 并发竞速选路</h3>
+          <p>当频道头部缺少近期健康记录时，自动对最多 3 个独立主机并发发起轻量探测，先通先播并取消其余慢连接，告别固定 8 秒死等。</p>
+        </article>
+
+        <article class="bento-card spotlight-surface" data-reveal style="--reveal-delay: 240ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="card-index">05 · 长辈友好</div>
+          <h3>4 挡即时大字 &amp; 自然方向键</h3>
+          <p>支持标准、大号、长辈大字与超大字四挡即时缩放而不中断播放；默认 <kbd class="inline-kbd">↓</kbd> 下一个频道、<kbd class="inline-kbd">↑</kbd> 上一个频道，支持一键反转。</p>
+        </article>
+
+        <article class="bento-card spotlight-surface" data-reveal style="--reveal-delay: 300ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="card-index">06 · 视觉引擎</div>
+          <h3>实时光学采样与极速纯色切换</h3>
+          <p>高端硬件使用 128×72 低开销实时视频毛玻璃采样，老旧低内存盒子可在控制中心切换「极速纯色」，确保 60fps 跟手度。</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Interactive Telemetry Tech Demos -->
+    <section class="section container" id="engine">
+      <div class="section-head" data-reveal>
+        <span class="eyebrow">INTERACTIVE TELEMETRY</span>
+        <h2>核心机制实时动画演示</h2>
+        <p>亲手触发多主机竞速切台与手机局域网直推流程，了解 SwiftTV 如何压榨每一次毫秒级延迟。</p>
+      </div>
+
+      <div class="tech-grid">
+        <!-- Demo A: Parallel Race Failover -->
+        <div class="tech-card spotlight-surface" data-reveal style="--reveal-delay: 0ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="tech-card-head">
+            <div>
+              <span class="card-index">DEMO A · HAPPY EYEBALLS</span>
+              <h3>同频道多主机并发竞速探测</h3>
+            </div>
+            <button type="button" class="btn-porcelain btn-sm sheen-btn" id="runRaceBtn">重新发起竞速</button>
+          </div>
+          <p class="tech-desc">当首选线路失效或尚无历史成功记录时，SwiftTV 并发向最多 3 个不同主机发送只读报文头的轻量请求（上限 2.5 秒），锁定最先返回可用流头的主机并立即取消慢连。</p>
+
+          <div class="race-lanes" id="raceLanes" aria-live="polite">
+            <div class="race-lane" data-host="host1">
+              <div class="lane-meta">
+                <span><strong>线路 1</strong> · alpha.cdn (IPv6)</span>
+                <span class="lane-status" id="laneStatus0">待触发</span>
+              </div>
+              <div class="lane-bar"><div class="lane-fill" id="laneFill0"></div></div>
+            </div>
+            <div class="race-lane" data-host="host2">
+              <div class="lane-meta">
+                <span><strong>线路 2</strong> · beta.edge (IPv4)</span>
+                <span class="lane-status" id="laneStatus1">待触发</span>
+              </div>
+              <div class="lane-bar"><div class="lane-fill" id="laneFill1"></div></div>
+            </div>
+            <div class="race-lane" data-host="host3">
+              <div class="lane-meta">
+                <span><strong>线路 3</strong> · gamma.node (IPv4)</span>
+                <span class="lane-status" id="laneStatus2">待触发</span>
+              </div>
+              <div class="lane-bar"><div class="lane-fill" id="laneFill2"></div></div>
+            </div>
+          </div>
+
+          <div class="race-summary" id="raceSummary">
+            <div><span>竞速结果</span><strong id="raceResultText">点击右上角演示 2.5s 并发测通</strong></div>
+            <div><span>相比串行 8s 等待</span><strong class="emerald" id="raceSavedText">最多省下 7s+</strong></div>
+          </div>
+        </div>
+
+        <!-- Demo B: Phone-to-TV Wireless Push Flow -->
+        <div class="tech-card spotlight-surface" data-reveal style="--reveal-delay: 90ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="tech-card-head">
+            <div>
+              <span class="card-index">DEMO B · LAN HANDOFF</span>
+              <h3>手机一键推装与隔空推源链路</h3>
+            </div>
+            <button type="button" class="btn-crystal btn-sm" id="runPushBtn">演示推送流程</button>
+          </div>
+          <p class="tech-desc">不用在电视上拿遥控器逐字母打长网址：手机安装助手可通过局域网 ADB 无线推送，或让电视直接从手机随机令牌临时 HTTP 通道取走本地 M3U。</p>
+
+          <div class="handoff-steps" id="handoffSteps">
+            <div class="handoff-node active" data-step="0">
+              <span class="node-num">1</span>
+              <div>
+                <strong>手机端粘贴链接或选本地 M3U</strong>
+                <span>随机 128-bit 令牌 · URL 安全 Base64 编码</span>
+              </div>
+            </div>
+            <div class="handoff-connector" aria-hidden="true"><div class="packet-pulse" id="packetPulse"></div></div>
+            <div class="handoff-node" data-step="1">
+              <span class="node-num">2</span>
+              <div>
+                <strong>局域网 ADB / HTTP 单次送达</strong>
+                <span>本地托管 30 秒过期，取走一次立即销毁</span>
+              </div>
+            </div>
+            <div class="handoff-connector" aria-hidden="true"></div>
+            <div class="handoff-node" data-step="2">
+              <span class="node-num">3</span>
+              <div>
+                <strong>电视弹出预览确认并直接起播</strong>
+                <span>显示频道数、EPG 状态，按 OK 保存即播</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Real TV Screenshots Showcase with Spotlight Border + 3D Depth Tilt -->
+    <section class="section container" id="showcase">
+      <div class="section-head" data-reveal>
+        <span class="eyebrow">REAL TV INTERFACE</span>
+        <h2>大屏实机界面一览</h2>
+        <p>纯正 tvOS 风格暗色玻璃与瓷白焦点，方向键先移焦点再确认切换。</p>
+      </div>
+
+      <div class="showcase-shell" data-reveal>
+        <div class="showcase-tabs" role="tablist" aria-label="界面实拍视图切换">
+          <button type="button" class="tab-btn" role="tab" aria-selected="true" id="tab-gallery" data-panel="panel-gallery">透明频道画廊</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" id="tab-details" data-panel="panel-details">线路测速与节目</button>
+          <button type="button" class="tab-btn" role="tab" aria-selected="false" id="tab-control" data-panel="panel-control">控制中心</button>
+        </div>
+
+        <div class="showcase-panels">
+          <div class="showcase-panel is-active" role="tabpanel" id="panel-gallery" aria-labelledby="tab-gallery" tabindex="0">
+            <figure class="showcase-frame spotlight-surface tilt-stage">
+              <div class="spotlight-layer" aria-hidden="true"></div>
+              <div class="showcase-media">
+                <img src="assets/img/channel-gallery.jpg" width="1560" height="878" loading="lazy" alt="SwiftTV 底部半透明频道画廊实拍">
+              </div>
+              <figcaption>播放时按确认键呼出底部频道卡片条，分组切换伴随物理弹簧指示器。</figcaption>
+            </figure>
+          </div>
+          <div class="showcase-panel" role="tabpanel" id="panel-details" aria-labelledby="tab-details" hidden="until-found">
+            <figure class="showcase-frame spotlight-surface tilt-stage">
+              <div class="spotlight-layer" aria-hidden="true"></div>
+              <div class="showcase-media">
+                <img src="assets/img/channel-details.jpg" width="1560" height="878" fetchpriority="low" loading="lazy" alt="SwiftTV 频道线路状态与手动测速界面">
+              </div>
+              <figcaption>查看同一频道下的 IPv6 / IPv4 备用线路健康度，支持一键静音逐条测速与收藏。</figcaption>
+            </figure>
+          </div>
+          <div class="showcase-panel" role="tabpanel" id="panel-control" aria-labelledby="tab-control" hidden="until-found">
+            <figure class="showcase-frame spotlight-surface tilt-stage">
+              <div class="spotlight-layer" aria-hidden="true"></div>
+              <div class="showcase-media">
+                <img src="assets/img/control-center.jpg" width="1560" height="878" fetchpriority="low" loading="lazy" alt="SwiftTV 右侧控制中心设置界面">
+              </div>
+              <figcaption>集中管理路由策略、上下键方向、长辈大字挡位、手机扫码入口、EPG 与脱敏诊断。</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sources, Official Test Streams & Configurable External Portal -->
+    <section class="section container" id="sources">
+      <div class="section-head" data-reveal>
+        <span class="eyebrow">GET STARTED &amp; SOURCES</span>
+        <h2>快速导入测试流与外部导航</h2>
+        <p>SwiftTV 本身不内置任何片源。你可以先复制下方合法公开测试流验证播放效果，再导入自己合法持有的订阅源。</p>
+      </div>
+
+      <div class="streams-grid" id="streamsGrid"></div>
+
+      <!-- External Portal Slot (Rendered cleanly from site-config.js when configured) -->
+      <div id="externalPortalMount"></div>
+    </section>
+
+    <!-- Dynamic GitHub Releases Download Center -->
+    <section class="section container" id="downloads">
+      <div class="section-head" data-reveal>
+        <span class="eyebrow">RELEASES &amp; VERIFICATION</span>
+        <h2>获取最新版本与校验信息</h2>
+        <p id="releaseStatusNote">正在从 GitHub Releases 核对最新公开版本…</p>
+      </div>
+
+      <div class="download-grid">
+        <div class="download-card featured spotlight-surface" data-reveal style="--reveal-delay: 0ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="dl-head">
+            <span class="dl-tag" id="dlTvTag">电视端主程序</span>
+            <span class="dl-ver" id="dlTvVersion">v0.4.2</span>
+          </div>
+          <h3>SwiftTV Android TV 版</h3>
+          <p class="dl-req">适用于 Android TV / 电视盒子 6.0+（API 23 及以上）</p>
+          <div class="dl-checksum">
+            <span>SHA-256：</span>
+            <code id="dlTvSha">c69878698a10e6cd3b04ddbb23a7725584ac32a22d5a942c4f4a16f5f702dafb</code>
+            <button type="button" class="copy-mini" id="copyTvSha">复制</button>
+          </div>
+          <div class="dl-actions">
+            <a class="btn-porcelain sheen-btn magnetic" id="dlTvBtn" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SwiftTV-0.4.2.apk">下载 SwiftTV APK (<span id="dlTvSize">1.5 MB</span>)</a>
+          </div>
+        </div>
+
+        <div class="download-card spotlight-surface" data-reveal style="--reveal-delay: 90ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="dl-head">
+            <span class="dl-tag">手机端伴侣</span>
+            <span class="dl-ver" id="dlInstVersion">v1.1.2</span>
+          </div>
+          <h3>SwiftTV 安装与推源助手</h3>
+          <p class="dl-req">适用于 Android 手机 8.0+ · 局域网无线装到电视 &amp; 一键推源</p>
+          <div class="dl-checksum">
+            <span>SHA-256：</span>
+            <code id="dlInstSha">ae9a2d76f8f3d03d5dc2674c65fa7b4bf607bb44c1acf83923b36a1214e3cb1e</code>
+            <button type="button" class="copy-mini" id="copyInstSha">复制</button>
+          </div>
+          <div class="dl-actions">
+            <a class="btn-crystal magnetic" id="dlInstBtn" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SwiftTV-Installer-1.1.2.apk">下载安装助手 APK (<span id="dlInstSize">20.1 MB</span>)</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="checksum-bar" data-reveal>
+        <a id="dlChecksumsLink" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SHA256SUMS.txt" target="_blank" rel="noopener noreferrer">查看 SHA256SUMS.txt ↗</a>
+        <span aria-hidden="true">·</span>
+        <a id="dlAllReleasesLink" href="https://github.com/morangse/SwiftTV/releases" target="_blank" rel="noopener noreferrer">浏览全部历史版本与源代码 ↗</a>
+      </div>
+    </section>
+
+    <!-- Accessible FAQ Accordion -->
+    <section class="section container accordion" id="faq" aria-labelledby="faq-heading">
+      <div class="section-head" data-reveal>
+        <span class="eyebrow">FREQUENT QUESTIONS</span>
+        <h2 id="faq-heading">常见问题</h2>
+      </div>
+
+      <div class="faq-list" data-reveal>
+        <details>
+          <summary>为什么打开软件直接显示二维码，没有内置任何电视频道？</summary>
+          <div class="faq-body">
+            自 SwiftTV 0.4.0 起软件严格保持纯本地空壳播放器定位，不内置、不预置、不分发任何第三方源。你可以手机连接同一 Wi-Fi 扫屏幕二维码，或使用「SwiftTV 安装助手」直接把自己的 M3U / .m3u8 源推送到电视。
+          </div>
+        </details>
+
+        <details>
+          <summary>老人用遥控器觉得字小，或者上下键方向不习惯怎么办？</summary>
+          <div class="faq-body">
+            按菜单键或画廊右上角进入「控制中心 → 播放与画面体验」，可以直接把「界面字体大小」调成「大号 / 长辈大字 / 超大字」（即时生效不断播），也能在「上下键换台方向」一键切换 <kbd class="inline-kbd">↓</kbd> / <kbd class="inline-kbd">↑</kbd> 顺序。
+          </div>
+        </details>
+
+        <details>
+          <summary>导入外部 HTTPS 订阅链接时遇到证书报错（Trust anchor not found）怎么办？</summary>
+          <div class="faq-body">
+            这常见于年份较久的 Android 6–9 电视固件系统缺少较新的公共根证书（如 Let's Encrypt），或电视系统时间未自动同步。建议先确认电视日期时间准确，或直接在手机端下载该 <code class="inline-code">.m3u</code> 后通过配对页面的「本地 M3U 文件」上传给电视。
+          </div>
+        </details>
+
+        <details>
+          <summary>安装助手找不到电视，怎么通过局域网无线连接？</summary>
+          <div class="faq-body">
+            请确认手机和电视在同一局域网且路由器关闭了 AP 隔离；然后在电视「设置 → 关于 → 连续点击版本号 7 次」进入开发者选项并开启「USB 调试 / 网络调试」。Android 11+ 电视还可使用安装助手里的「无线调试配对」输入 6 位配对码直连。
+          </div>
+        </details>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="assets/img/logo.png" width="28" height="28" loading="lazy" alt="SwiftTV">
+        <div>
+          <strong>SwiftTV</strong>
+          <span>Apache-2.0 Open Source Project · 纯本地 Android TV 播放器</span>
+        </div>
+      </div>
+      <p class="footer-legal">
+        声明：SwiftTV 本体及官方发布包不提供、不托管、不转码任何音视频直播流或第三方受限内容。任何第三方链接与用户自行导入的订阅源，其合法性、隐私与可用性由提供方与使用者自行负责。
+      </p>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="site-config.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
