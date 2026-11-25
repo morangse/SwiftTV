@@ -48,10 +48,21 @@ class PlaybackRecoveryTest {
     }
 
     @Test fun streamSpecBadgeFormatsResolutionCodecRouteAndFirstFrameCleanly() {
-        val hd = StreamSpec(1920, 1080, MimeTypes.VIDEO_H264, 25f, MimeTypes.AUDIO_AAC, "河南移动", 420L)
-        assertEquals("1080p · H.264 · 河南移动 · 420ms", hd.badge())
-        val uhd = StreamSpec(3840, 2160, MimeTypes.VIDEO_H265, 50f, MimeTypes.AUDIO_AAC, "河南移动", 0L)
-        assertEquals("4K · HEVC · 河南移动", uhd.badge())
+        val hd = StreamSpec(1920, 1080, MimeTypes.VIDEO_H264, 25f, MimeTypes.AUDIO_AAC, "IPv4 线路", 420L)
+        assertEquals("1080p · H.264 · IPv4 线路 · 420ms", hd.badge())
+        val uhd = StreamSpec(3840, 2160, MimeTypes.VIDEO_H265, 50f, MimeTypes.AUDIO_AAC, "IPv6 线路", 0L)
+        assertEquals("4K · HEVC · IPv6 线路", uhd.badge())
         assertEquals("", StreamSpec().badge())
+    }
+
+    @Test fun fastFailoverTimeoutsAndExponentialCooldownAreBounded() {
+        assertEquals(3_500L, PlaybackRecoveryPolicy.NO_TRACK_TIMEOUT_MS)
+        assertEquals(7_500L, PlaybackRecoveryPolicy.FIRST_FRAME_TIMEOUT_MS)
+        assertEquals(5_000L, PlaybackRecoveryPolicy.REBUFFER_TIMEOUT_MS)
+        assertEquals(6_000L, PlaybackRecoveryPolicy.NO_PROGRESS_TIMEOUT_MS)
+        assertEquals(120_000L, PlaybackRecoveryPolicy.cooldownMs(1))
+        assertEquals(600_000L, PlaybackRecoveryPolicy.cooldownMs(2))
+        assertEquals(1_800_000L, PlaybackRecoveryPolicy.cooldownMs(3))
+        assertEquals(1_800_000L, PlaybackRecoveryPolicy.cooldownMs(8))
     }
 }

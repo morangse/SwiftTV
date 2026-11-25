@@ -3,14 +3,14 @@
 一个 Android 手机端的小工具：在同一个局域网内发现电视，通过 ADB 把内置的 SwiftTV 安装包推到电视上并安装。
 
 - 应用包名：`app.swifttv.installer`
-- 版本：1.0.1（versionCode 2）
+- 版本：1.1.0（versionCode 3）
 - 最低手机系统：Android 8.0（API 26）
-- 内置安装包：`app/src/main/assets/swifttv-0.3.3.apk`（与 SwiftTV 0.3.3 公开发行包一致）
+- 内置安装包：`app/src/main/assets/swifttv-0.4.0.apk`（与 SwiftTV 0.4.0 公开发行包一致）
 - 图标：复用 SwiftTV 品牌图，已生成各密度启动图标与 Android 13 单色图标
 
 ## 目录与构建产物
 
-- `app/src/main/assets/swifttv-0.3.3.apk`：内置的 SwiftTV 安装包
+- `app/src/main/assets/swifttv-0.4.0.apk`：内置的 SwiftTV 安装包
 - `app/src/main/java/app/swifttv/installer/`：应用源码
 - `app/build/outputs/apk/release/app-release.apk`：构建后的 release APK（不入库）
 - `app/build/outputs/apk/debug/app-debug.apk`：构建后的 debug APK（不入库）
@@ -48,8 +48,12 @@
    - 安装成功后可自动通过 `monkey` 或 `am start` 打开 SwiftTV。
 
 6. **安装包管理**
-   - 默认使用内置 SwiftTV 0.3.3。
+   - 默认使用内置 SwiftTV 0.4.0。
    - 可通过系统文件选择器更换本地 APK；会读取包名、版本、图标和大小，并提示所选包是否不是 SwiftTV。
+
+7. **推送直播源到电视（1.1.0 新增）**
+   - 在手机输入 M3U 订阅链接或单频道 `.m3u8` / 直播流 URL（可选名称、EPG），通过安全 Base64 参数直接拉起电视端预览导入确认框。
+   - 支持选择手机本地 `.m3u` / `.m3u8` 文件，由临时局域网随机令牌一次性 HTTP 服务推送到电视（30 秒有效，取走后自动关闭）。
 
 ## 使用步骤
 

@@ -25,7 +25,7 @@ import java.net.URLDecoder
 import java.util.Locale
 import java.util.concurrent.Executors
 
-/** Pure multi-tier logo key resolver so imported playlists (e.g. Elykia093/HA-CMCC-IPTV) match offline & online logos reliably. */
+/** Pure multi-tier logo key resolver so user-imported playlists match local & remote logos reliably. */
 object ChannelLogoMatcher {
     private val stripPunct = Regex("[\\s\\-_()（）\\[\\]·•]")
     private val trailingQuality = Regex("(?i)(?:fhd|fullhd|uhd|hd|sd|1080[pi]|720p|576[pi]|高清|超清|标清|直播)$")

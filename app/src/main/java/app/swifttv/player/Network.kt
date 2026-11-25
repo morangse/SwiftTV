@@ -6,15 +6,19 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.GZIPInputStream
 
 data class Download(val text: String, val etag: String, val lastModified: String, val notModified: Boolean)
+data class ImportDownload(val text: String?, val directStreamMime: String?, val etag: String, val lastModified: String)
 
 class Network(cacheDir: File?) {
     // A live MPEG-TS/FLV body can remain open for hours. Its total duration is not a timeout;
@@ -22,11 +26,17 @@ class Network(cacheDir: File?) {
     val client = OkHttpClient.Builder().connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS).callTimeout(0, TimeUnit.SECONDS)
         .build()
-    // Live segment names may be recycled. Playback must always reach the network, even when
-    // a server incorrectly marks an old playlist/segment as cacheable.
+
     // Bounded catalogue/sniff/prefetch/EPG calls share the connection pool and keep their own cache.
     private val requestClient = client.newBuilder().callTimeout(20, TimeUnit.SECONDS)
         .apply { if (cacheDir != null) cache(Cache(File(cacheDir, "http"), 8L * 1024 * 1024)) }
+        .build()
+
+    // Fast parallel-race client for Happy Eyeballs candidate selection.
+    private val probeClient = client.newBuilder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2500, TimeUnit.MILLISECONDS)
+        .callTimeout(2500, TimeUnit.MILLISECONDS)
         .build()
 
     fun download(url: String, etag: String = "", lastModified: String = ""): Download {
@@ -45,6 +55,50 @@ class Network(cacheDir: File?) {
             val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
             return Download(text, response.header("ETag").orEmpty(), response.header("Last-Modified").orEmpty(), false)
+        }
+    }
+
+    /**
+     * Downloads an import target while sniffing initial bytes so direct continuous streams (.ts/.flv)
+     * are recognized without attempting to download an unbounded live video body.
+     */
+    fun downloadForImport(url: String): ImportDownload {
+        httpUri(url)
+        val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
+        requestClient.newCall(request).execute().use { response ->
+            require(response.isSuccessful) { "地址返回 HTTP " + response.code }
+            val body = response.body ?: error("服务器没有返回内容")
+            val etag = response.header("ETag").orEmpty()
+            val lastModified = response.header("Last-Modified").orEmpty()
+            body.byteStream().use { input ->
+                val head = ByteArray(2048)
+                var headLen = 0
+                while (headLen < head.size) {
+                    val n = input.read(head, headLen, head.size - headLen)
+                    if (n < 0) break
+                    headLen += n
+                    val detected = streamMime(head, headLen)
+                    if (detected != null && detected != "application/x-mpegURL") {
+                        return ImportDownload(null, detected, etag, lastModified)
+                    }
+                    if (detected == "application/x-mpegURL") break
+                }
+                require(body.contentLength() <= M3uParser.MAX_BYTES) { "频道表不能超过 2 MB" }
+                val out = ByteArrayOutputStream(maxOf(headLen, 4096))
+                out.write(head, 0, headLen)
+                val buf = ByteArray(8192)
+                var total = headLen
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    total += n
+                    require(total <= M3uParser.MAX_BYTES) { "频道表不能超过 2 MB" }
+                    out.write(buf, 0, n)
+                }
+                val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(out.toByteArray())).toString()
+                return ImportDownload(text, null, etag, lastModified)
+            }
         }
     }
 
@@ -126,6 +180,95 @@ class Network(cacheDir: File?) {
     }
 
     /**
+     * Concurrently probes up to [candidates] using bounded 2.5s calls and returns the first candidate
+     * delivering HTTP 2xx + valid media stream header (#EXTM3U / TS / FLV / fMP4), cancelling all others.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun raceProbe(
+        candidates: List<Entry>,
+        onComplete: (winner: Entry?, failedErrors: Map<String, String>) -> Unit
+    ): () -> Unit {
+        if (candidates.isEmpty()) {
+            onComplete(null, emptyMap())
+            return {}
+        }
+        val settled = AtomicBoolean(false)
+        val cancelled = AtomicBoolean(false)
+        val remaining = AtomicInteger(candidates.size)
+        val failed = java.util.Collections.synchronizedMap(LinkedHashMap<String, String>())
+        val calls = java.util.Collections.synchronizedList(mutableListOf<Call>())
+
+        fun cancelAll() {
+            if (cancelled.compareAndSet(false, true)) {
+                synchronized(calls) { calls.forEach { runCatching { it.cancel() } } }
+            }
+        }
+
+        fun finishFailure(url: String, error: String) {
+            failed[url] = error
+            if (remaining.decrementAndGet() == 0 && !cancelled.get() && settled.compareAndSet(false, true)) {
+                onComplete(null, synchronized(failed) { failed.toMap() })
+            }
+        }
+
+        for (candidate in candidates) {
+            val call = probeClient.newCall(Request.Builder().url(candidate.url).header("User-Agent", USER_AGENT).apply {
+                candidate.headers.forEach { (k, v) -> header(k, v) }
+            }.build())
+            calls += call
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (settled.get() || cancelled.get()) return
+                    finishFailure(candidate.url, PlaybackErrors.describe(e))
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    var valid = false
+                    var errMessage = ""
+                    try {
+                        response.use { resp ->
+                            if (!resp.isSuccessful) {
+                                errMessage = "HTTP " + resp.code
+                            } else {
+                                val body = resp.body
+                                if (body == null) {
+                                    errMessage = "线路没有返回数据"
+                                } else {
+                                    val buffer = ByteArray(4096)
+                                    var offset = 0
+                                    var mime: String? = null
+                                    body.byteStream().use { input ->
+                                        while (offset < buffer.size && mime == null) {
+                                            if (settled.get() || cancelled.get()) break
+                                            val n = input.read(buffer, offset, buffer.size - offset)
+                                            if (n < 0) break
+                                            offset += n
+                                            mime = streamMime(buffer, offset)
+                                        }
+                                    }
+                                    if (mime != null) valid = true else errMessage = "非有效音视频流"
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        errMessage = PlaybackErrors.describe(e)
+                    }
+                    if (cancelled.get()) return
+                    if (valid) {
+                        if (settled.compareAndSet(false, true)) {
+                            cancelAll()
+                            onComplete(candidate, synchronized(failed) { failed.toMap() })
+                        }
+                    } else if (!settled.get()) {
+                        finishFailure(candidate.url, errMessage.ifBlank { "线路探测失败" })
+                    }
+                }
+            })
+        }
+        return { cancelAll() }
+    }
+
+    /**
      * Warms the TCP/TLS connection for an HLS manifest by reading a bounded playlist body to EOF
      * so OkHttp returns the keep-alive socket cleanly to the shared ConnectionPool.
      * Continuous .ts/.flv streams are never warmed because aborting mid-body discards the socket.
@@ -160,15 +303,20 @@ class Network(cacheDir: File?) {
         })
         return call
     }
-    fun close() { client.dispatcher.cancelAll(); client.connectionPool.evictAll(); requestClient.cache?.close() }
+
+    fun close() {
+        probeClient.dispatcher.cancelAll()
+        client.dispatcher.cancelAll()
+        client.connectionPool.evictAll()
+        requestClient.cache?.close()
+    }
 
     companion object {
-        const val USER_AGENT = "SwiftTV/0.3"
+        const val USER_AGENT = "SwiftTV/0.4"
 
         internal fun logoCandidates(url: String): List<String> {
             val trimmed = url.trim()
             val list = mutableListOf(trimmed)
-            // Automatic domestic-friendly jsDelivr fallback for GitHub Pages / raw GitHub logo URLs
             val ghPages = Regex("^https?://([\\w-]+)\\.github\\.io/([\\w.-]+)/(.*)$", RegexOption.IGNORE_CASE).matchEntire(trimmed)
             if (ghPages != null) {
                 val (owner, repo, rest) = ghPages.destructured
@@ -197,7 +345,6 @@ class Network(cacheDir: File?) {
                 return "video/mp4"
             }
             // Verify three MPEG-TS sync bytes, allowing initial padding before the first packet.
-            // An HTML error page with HTTP 200 must not be passed to the TS extractor.
             for (start in 0 until minOf(188, size)) {
                 if (start + 376 >= size) break
                 if (bytes[start] == 0x47.toByte() && bytes[start + 188] == 0x47.toByte() && bytes[start + 376] == 0x47.toByte())

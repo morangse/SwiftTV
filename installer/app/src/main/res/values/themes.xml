@@ -17,7 +17,7 @@
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
         <item name="android:fontFamily">sans-serif</item>
         <item name="materialAlertDialogTheme">@style/ThemeOverlay.SwiftTVInstaller.Dialog</item>
         <item name="android:windowActionModeOverlay">true</item>

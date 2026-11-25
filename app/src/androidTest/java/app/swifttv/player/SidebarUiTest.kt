@@ -54,7 +54,7 @@ class SidebarUiTest {
             store.replaceSubscription(Subscription(marker, "Cinema UI controlled test", "", System.currentTimeMillis()), ParsedPlaylist(entries, 0))
             store.remember(ids.first())
             val screen = instrumentation.startActivitySync(Intent(context, MainActivity::class.java)
-                .putExtra("skipBuiltinsForTest", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
+                .putExtra("isolatedTestMode", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)) as MainActivity
             activity = screen
             await("The test activity owns window focus") { onMain {
                 screen.hasWindowFocus() && screen.window.decorView.display != null

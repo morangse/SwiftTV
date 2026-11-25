@@ -38,7 +38,7 @@ class DeviceSmokeTest {
             val parsed = M3uParser.parse(download.text)
             CatalogStore(context).replaceSubscription(Subscription("controlled-test", "Controlled test", url, System.currentTimeMillis()), parsed)
         }
-        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).putExtra("skipBuiltinsForTest", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        val activity = instrumentation.startActivitySync(Intent(context, MainActivity::class.java).putExtra("isolatedTestMode", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         instrumentation.waitForIdleSync()
         assertNotNull(activity)
         // Keep launcher activity available for the documented ADB playback acceptance steps.

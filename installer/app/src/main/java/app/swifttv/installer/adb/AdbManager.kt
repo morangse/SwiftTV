@@ -198,6 +198,21 @@ class AdbManager(private val context: Context) {
         }
     }
 
+    suspend fun pushConfigToTv(base64Payload: String): Boolean = withContext(Dispatchers.IO) {
+        if (!B64_URL_PATTERN.matches(base64Payload) || base64Payload.length > MAX_PUSH_B64_LEN) {
+            return@withContext false
+        }
+        mutex.withLock {
+            val kadb = client ?: return@withLock false
+            val out = runCatching {
+                kadb.shell(
+                    "am start -n $PACKAGE_NAME/.MainActivity --es swifttv_push_b64 $base64Payload"
+                ).allOutput
+            }.getOrNull().orEmpty()
+            out.contains("Starting:") || out.contains("Activity:") || out.contains("Warning: Activity not started")
+        }
+    }
+
     fun disconnect() {
         runCatching { client?.close() }
         client = null
@@ -338,6 +353,8 @@ class AdbManager(private val context: Context) {
 
     companion object {
         const val PACKAGE_NAME = "app.swifttv.player"
+        private val B64_URL_PATTERN = Regex("^[A-Za-z0-9_-]+$")
+        private const val MAX_PUSH_B64_LEN = 16_384
 
         private const val PROP_COMMAND =
             "echo MANUFACTURER=$(getprop ro.product.manufacturer); " +

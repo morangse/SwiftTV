@@ -53,19 +53,19 @@ class CatalogTest {
             assertNotEquals("henan", ChannelIdentity.resolve("", name).first)
         }
     }
-    @Test fun elykiaNamesMergeHenanVariantsAndKeepCctvFivePlusSeparate() {
+    @Test fun standardChannelVariantsMergeAndKeepCctvFivePlusSeparate() {
         val parsed = M3uParser.parse("""
             #EXTM3U
             #EXTINF:-1 tvg-id="河南卫视" tvg-name="河南卫视" group-title="卫视频道",河南卫视
-            http://henan.example/PLTV/88888888/224/3221226463/index.m3u8
+            http://one.example/live/1.m3u8
             #EXTINF:-1 tvg-id="HenanSatelliteTV.cn" tvg-name="河南卫视 HD",河南卫视高清
             https://backup.example/henan.m3u8
             #EXTINF:-1 tvg-id="湖南卫视" tvg-name="湖南卫视",湖南卫视
-            http://henan.example/PLTV/88888888/224/3221226659/index.m3u8
+            http://one.example/live/2.m3u8
             #EXTINF:-1 tvg-id="CCTV5" tvg-name="CCTV5",CCTV5
-            http://henan.example/cctv5.m3u8
+            http://one.example/cctv5.m3u8
             #EXTINF:-1 tvg-id="CCTV5+" tvg-name="CCTV5+",CCTV5+
-            http://henan.example/cctv5plus.m3u8
+            http://one.example/cctv5plus.m3u8
         """.trimIndent())
         val channels = CatalogState(entries = parsed.entries).channels()
         assertEquals(listOf("henan", "hunan", "cctv-5", "cctv-5+"), channels.map { it.id })
@@ -76,9 +76,42 @@ class CatalogTest {
         assertNotEquals(ChannelIdentity.resolve("DragonTVInternational.cn@SD", "Dragon TV International").first,
             ChannelIdentity.resolve("DragonTV.cn@HD", "东方卫视").first)
     }
-    @Test fun rejectsHlsSegmentLists() {
-        val error = runCatching { M3uParser.parse("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nhttps://example.com/a.ts") }.exceptionOrNull()
-        assertTrue(error?.message?.contains("HLS") == true)
+    @Test fun parsesSingleChannelHlsManifestsAndRejectsRelativeLocalMasters() {
+        val mediaHls = "#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nhttps://example.com/a.ts"
+        assertTrue(M3uParser.isHlsManifest(mediaHls))
+        assertTrue(runCatching { M3uParser.parse(mediaHls) }.isFailure)
+
+        val singleHls = M3uParser.parseImport(mediaHls, sourceUrl = "https://stream.example/live/cctv1.m3u8", explicitName = "CCTV-1 单频道")
+        assertEquals(M3uParser.SINGLE_STREAM_GROUP, singleHls.entries.single().group)
+        assertEquals("CCTV-1 单频道", singleHls.entries.single().name)
+        assertEquals("https://stream.example/live/cctv1.m3u8", singleHls.entries.single().url)
+
+        val localMaster = M3uParser.parseImport(
+            "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nhttps://cdn.example/1080.m3u8\n",
+            sourceUrl = "",
+            explicitName = "本地单流"
+        )
+        assertEquals("https://cdn.example/1080.m3u8", localMaster.entries.single().url)
+        assertTrue(runCatching {
+            M3uParser.parseImport("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nchunklist.m3u8\n")
+        }.isFailure)
+
+        val binarySingle = M3uParser.singleStreamPlaylist("https://stream.example/live.ts")
+        assertEquals(M3uParser.SINGLE_STREAM_GROUP, binarySingle.entries.single().group)
+        assertEquals("https://stream.example/live.ts", binarySingle.entries.single().url)
+    }
+    @Test fun hardwareGatingAndStartChannelSelectionRespectStatsAndLastPlayed() {
+        val hd = Channel("cctv-1", "CCTV-1", "央视", listOf(Entry("cctv-1", "CCTV-1", "央视", "https://a.example/1.m3u8")))
+        val uhd = Channel("cctv-16", "CCTV-16 4K", "央视", listOf(Entry("cctv-16", "CCTV-16 4K", "央视", "https://a.example/4k.m3u8", profile = CatalogSelection.PROFILE_4K_HEVC50)))
+        val gatedOff = CatalogSelection.gateHardware(listOf(hd, uhd), supports4kHevc50 = false)
+        assertEquals(2, gatedOff.size)
+        assertEquals(hd.sources, gatedOff[0].sources)
+        assertTrue(gatedOff[1].sources.isEmpty())
+        assertTrue(gatedOff[1].unavailableReason.contains("4K"))
+        assertEquals(listOf(hd, uhd), CatalogSelection.gateHardware(listOf(hd, uhd), supports4kHevc50 = true))
+        val healthyStats = mapOf(sourceId("https://a.example/4k.m3u8") to SourceStat(attempts = 1, successes = 1))
+        assertEquals(uhd, CatalogSelection.chooseStart(listOf(hd, uhd), "", healthyStats))
+        assertEquals(hd, CatalogSelection.chooseStart(listOf(hd, uhd), "cctv-1", healthyStats))
     }
     @Test fun invalidSchemesAndHtmlAreRejected() {
         for (text in listOf("<html>Forbidden</html>", "#EXTM3U\n#EXTINF:-1,Channel\nfile:///sdcard/private.ts",

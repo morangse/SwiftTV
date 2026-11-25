@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private var lastLogSignature = ""
     private var lastHelpExpanded: Boolean? = null
     private var lastInstallState = InstallState.IDLE
+    private var lastPushState = PushState.IDLE
     private var suppressAutoOpenCallback = false
 
     private val openApkLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -48,6 +49,15 @@ class MainActivity : AppCompatActivity() {
             )
         }
         viewModel.useApk(uri)
+    }
+
+    private val openM3uLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        viewModel.pushLocalM3uToTv(
+            uri = uri,
+            rawName = binding.pushNameInput.text?.toString().orEmpty(),
+            rawEpgUrl = binding.pushEpgInput.text?.toString().orEmpty()
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +79,16 @@ class MainActivity : AppCompatActivity() {
         }
         binding.installButton.setOnClickListener { viewModel.install() }
         binding.openButton.setOnClickListener { viewModel.openOnTv() }
+        binding.pushUrlButton.setOnClickListener {
+            viewModel.pushUrlToTv(
+                rawUrl = binding.pushUrlInput.text?.toString().orEmpty(),
+                rawName = binding.pushNameInput.text?.toString().orEmpty(),
+                rawEpgUrl = binding.pushEpgInput.text?.toString().orEmpty()
+            )
+        }
+        binding.pushFileButton.setOnClickListener {
+            openM3uLauncher.launch(arrayOf("*/*"))
+        }
         binding.helpHeader.setOnClickListener { viewModel.toggleHelp() }
 
         binding.autoOpenCheck.setOnCheckedChangeListener { _, checked ->
@@ -113,6 +133,7 @@ class MainActivity : AppCompatActivity() {
         renderDevices(state)
         renderApk(state)
         renderInstall(state)
+        renderPush(state)
         renderHelp(state)
         renderLogs(state)
         maybeShowConflictDialog(state)
@@ -258,6 +279,58 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "安装失败，请查看日志", Toast.LENGTH_SHORT).show()
         }
         lastInstallState = state.installState
+    }
+
+    private fun renderPush(state: InstallerUiState) {
+        val connected = state.connected
+        val tvReady = connected != null &&
+            (connected.packageInstalled || state.installState == InstallState.SUCCESS)
+        val badge = when (state.pushState) {
+            PushState.PUSHING -> Triple("推送中", R.color.accent, R.color.accent_soft)
+            PushState.SUCCESS -> Triple("已送达", R.color.success, R.color.success_soft)
+            PushState.FAILED -> Triple("失败", R.color.error, R.color.surface_high)
+            PushState.IDLE -> if (tvReady) {
+                Triple("就绪", R.color.accent, R.color.accent_soft)
+            } else {
+                Triple("待连接", R.color.text_tertiary, R.color.surface_high)
+            }
+        }
+        setChip(binding.pushBadge, badge.first, badge.second, badge.third)
+
+        binding.pushStatus.text = when {
+            state.pushMessage.isNotBlank() -> state.pushMessage
+            connected != null && (connected.packageInstalled || state.installState == InstallState.SUCCESS) ->
+                "已连接 ${connected.displayName}，粘贴链接或选本地文件即可推送"
+            else -> getString(R.string.push_ready)
+        }
+        binding.pushStatus.setTextColor(
+            ContextCompat.getColor(
+                this,
+                when (state.pushState) {
+                    PushState.SUCCESS -> R.color.success
+                    PushState.FAILED -> R.color.error
+                    PushState.PUSHING -> R.color.accent
+                    PushState.IDLE -> R.color.text_secondary
+                }
+            )
+        )
+
+        binding.pushProgress.visibility =
+            if (state.busy == BusyKind.PUSHING) View.VISIBLE else View.GONE
+        val enabled = !state.isBusy && state.connected != null
+        binding.pushUrlInput.isEnabled = !state.isBusy
+        binding.pushNameInput.isEnabled = !state.isBusy
+        binding.pushEpgInput.isEnabled = !state.isBusy
+        binding.pushUrlButton.isEnabled = enabled
+        binding.pushFileButton.isEnabled = enabled
+
+        if (state.pushState == PushState.SUCCESS && lastPushState != PushState.SUCCESS) {
+            Toast.makeText(this, "已推送到电视，请在电视端确认", Toast.LENGTH_SHORT).show()
+        }
+        if (state.pushState == PushState.FAILED && lastPushState != PushState.FAILED) {
+            Toast.makeText(this, state.pushMessage.ifBlank { "推送失败" }, Toast.LENGTH_SHORT).show()
+        }
+        lastPushState = state.pushState
     }
 
     private fun renderHelp(state: InstallerUiState) {

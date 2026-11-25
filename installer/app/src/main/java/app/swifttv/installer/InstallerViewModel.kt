@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.swifttv.installer.adb.AdbManager
@@ -16,6 +17,7 @@ import app.swifttv.installer.net.NsdDiscovery
 import app.swifttv.installer.net.NsdEvent
 import app.swifttv.installer.net.NsdType
 import app.swifttv.installer.net.NetworkUtils
+import app.swifttv.installer.net.OneShotFileServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -47,6 +49,8 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     private var scanJob: Job? = null
     private var connectionJob: Job? = null
     private var installJob: Job? = null
+    private var pushJob: Job? = null
+    private var activeFileServer: OneShotFileServer? = null
     private var initialized = false
 
     init {
@@ -790,13 +794,184 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun pushUrlToTv(rawUrl: String, rawName: String, rawEpgUrl: String) {
+        if (_state.value.isBusy) return
+        val target = _state.value.connected
+        if (target == null) {
+            _state.update { it.copy(pushState = PushState.FAILED, pushMessage = "请先连接电视") }
+            return
+        }
+        val b64 = try {
+            PushConfigCodec.encode(
+                url = rawUrl,
+                name = rawName,
+                epgUrl = rawEpgUrl,
+                localSnapshot = false
+            )
+        } catch (t: IllegalArgumentException) {
+            val msg = t.message ?: "请输入有效的 http:// 或 https:// 订阅或直播流地址"
+            _state.update { it.copy(pushState = PushState.FAILED, pushMessage = msg) }
+            log("推送校验失败：$msg")
+            return
+        }
+
+        pushJob?.cancel()
+        pushJob = viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    busy = BusyKind.PUSHING,
+                    pushState = PushState.PUSHING,
+                    pushMessage = "正在把源配置推送到 ${target.displayName}…"
+                )
+            }
+            log("推送直播源到电视：${rawUrl.trim()}")
+            val ok = adb.pushConfigToTv(b64)
+            _state.update {
+                it.copy(
+                    busy = BusyKind.NONE,
+                    pushState = if (ok) PushState.SUCCESS else PushState.FAILED,
+                    pushMessage = if (ok) {
+                        "已推送到电视，请在电视屏幕按 OK 确认导入"
+                    } else {
+                        "推送失败，请确认电视已安装 SwiftTV 0.4.0+ 且 ADB 连接正常"
+                    }
+                )
+            }
+            log(if (ok) "已调起电视端确认导入弹窗" else "通过 ADB 推送配置失败")
+        }
+    }
+
+    fun pushLocalM3uToTv(uri: Uri, rawName: String, rawEpgUrl: String) {
+        if (_state.value.isBusy) return
+        val target = _state.value.connected
+        if (target == null) {
+            _state.update { it.copy(pushState = PushState.FAILED, pushMessage = "请先连接电视") }
+            return
+        }
+        val epgTrimmed = rawEpgUrl.trim()
+        if (epgTrimmed.isNotEmpty()) {
+            try {
+                PushConfigCodec.httpUri(epgTrimmed)
+            } catch (t: IllegalArgumentException) {
+                val msg = t.message ?: "EPG 地址必须是有效的 HTTP/HTTPS 地址"
+                _state.update { it.copy(pushState = PushState.FAILED, pushMessage = msg) }
+                return
+            }
+        }
+
+        pushJob?.cancel()
+        pushJob = viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    busy = BusyKind.PUSHING,
+                    pushState = PushState.PUSHING,
+                    pushMessage = "正在读取手机本地文件并准备局域网传送…"
+                )
+            }
+            runCatching { activeFileServer?.close() }
+            activeFileServer = null
+
+            val prepared = withContext(Dispatchers.IO) {
+                runCatching {
+                    val network = _state.value.localNetwork ?: NetworkUtils.localNetwork(app)
+                        ?: error("未检测到手机局域网 IPv4 地址，无法向电视传输文件")
+                    val displayName = queryDisplayName(uri) ?: "手机本地源文件.m3u"
+                    val ext = if (displayName.endsWith(".m3u8", ignoreCase = true)) "m3u8" else "m3u"
+                    val bytes = readBoundedBytes(uri, OneShotFileServer.MAX_BYTES)
+                    val server = OneShotFileServer(network.ipAddress, bytes, extension = ext)
+                    val inferredName = rawName.trim().ifBlank {
+                        displayName.substringBeforeLast('.').ifBlank { "手机推送列表" }
+                    }
+                    val b64 = PushConfigCodec.encode(
+                        url = server.url,
+                        name = inferredName,
+                        epgUrl = epgTrimmed,
+                        localSnapshot = true
+                    )
+                    Triple(server, b64, displayName)
+                }
+            }
+
+            val (server, b64, displayName) = prepared.getOrElse { error ->
+                val msg = error.message ?: "无法读取手机本地文件"
+                _state.update {
+                    it.copy(busy = BusyKind.NONE, pushState = PushState.FAILED, pushMessage = msg)
+                }
+                log("本地文件推送失败：$msg")
+                return@launch
+            }
+            activeFileServer = server
+            log("临时单次文件服务已启动，准备推送 $displayName")
+
+            val ok = adb.pushConfigToTv(b64)
+            if (!ok) {
+                server.close()
+                if (activeFileServer === server) activeFileServer = null
+                _state.update {
+                    it.copy(
+                        busy = BusyKind.NONE,
+                        pushState = PushState.FAILED,
+                        pushMessage = "推送失败，请确认电视已安装 SwiftTV 0.4.0+ 且 ADB 连接正常"
+                    )
+                }
+                log("通过 ADB 启动电视端失败，已关闭临时文件服务")
+                return@launch
+            }
+
+            _state.update {
+                it.copy(
+                    busy = BusyKind.NONE,
+                    pushState = PushState.SUCCESS,
+                    pushMessage = "已推送 $displayName，请在电视端确认导入（临时通道 30 秒内有效）"
+                )
+            }
+            log("已触发电视端读取 $displayName（30 秒内有效）")
+
+            withContext(Dispatchers.IO) {
+                val fetched = server.awaitDelivered(15_000L)
+                if (fetched) {
+                    log("电视端已取走 $displayName，临时服务已自动关闭")
+                }
+            }
+        }
+    }
+
+    private fun queryDisplayName(uri: Uri): String? = runCatching {
+        app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0)?.takeIf { it.isNotBlank() } else null
+            }
+    }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast('/')
+
+    private fun readBoundedBytes(uri: Uri, maxBytes: Int): ByteArray {
+        val stream = app.contentResolver.openInputStream(uri)
+            ?: error("无法打开所选文件")
+        return stream.use { input ->
+            val buffer = ByteArray(8192)
+            val out = java.io.ByteArrayOutputStream()
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                if (out.size() + n > maxBytes) {
+                    error("文件超过 2 MB 上限，请选择标准的 M3U/M3U8 文件")
+                }
+                out.write(buffer, 0, n)
+            }
+            val bytes = out.toByteArray()
+            if (bytes.isEmpty()) error("所选文件为空")
+            bytes
+        }
+    }
+
     override fun onCleared() {
+        runCatching { activeFileServer?.close() }
+        activeFileServer = null
         nsd.stop()
         adb.disconnect()
         super.onCleared()
     }
 
     companion object {
-        private const val BUNDLED_APK_NAME = "swifttv-0.3.3.apk"
+        private const val BUNDLED_APK_NAME = "swifttv-0.4.0.apk"
     }
 }

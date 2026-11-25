@@ -22,8 +22,8 @@ object CatalogDiagnostics {
                 .put("failures", stat.failures).put("cancelled", stat.cancelled).put("lastOutcome", stat.lastOutcome)
                 .put("error", DiagnosticRedaction.message(stat.error)).put("health", SourceHealth.describe(stat))
         }
-        return JSONObject().put("schemaVersion", 3).put("appVersion", appVersion)
-            .put("device", device).put("exportedAt", now).put("builtinRevision", state.builtinRevision)
+        return JSONObject().put("schemaVersion", 4).put("appVersion", appVersion)
+            .put("device", device).put("exportedAt", now)
             .put("routingPreference", routingPreference).put("sources", JSONArray(sources)).toString(2)
     }
 }

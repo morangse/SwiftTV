@@ -81,11 +81,11 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private var consumeOpeningConfirm = false
     private var channelCursor = -1
     private var refreshing = false
-    private var skipBuiltinsForTest = false
+    private var isolatedTestMode = false
     private var startupRejected = false
     private var backgrounded = false
     private var userDeparted = false
-    private var presetLoading = false
+    private var pendingPushB64: String? = null
     private var startupSourceDialog: View? = null
 
     private val numberPad = ChannelNumberPad()
@@ -111,6 +111,14 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
     }
 
+    private fun capturePushExtra(source: Intent?) {
+        val b64 = source?.getStringExtra(PushPayload.EXTRA_PUSH_B64)?.trim()
+        if (!b64.isNullOrEmpty()) {
+            pendingPushB64 = b64
+            source.removeExtra(PushPayload.EXTRA_PUSH_B64)
+        }
+    }
+
     @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -120,8 +128,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         store = CatalogStore(this)
         codecProfile = HardwareCodecProbe.profile(this)
-        skipBuiltinsForTest = BuildConfig.DEBUG && intent.getBooleanExtra("skipBuiltinsForTest", false)
-        if (!skipBuiltinsForTest) BuiltinCatalog.installBundled(this, store)
+        isolatedTestMode = BuildConfig.DEBUG && intent.getBooleanExtra("isolatedTestMode", false)
+        capturePushExtra(intent)
         network = Network(cacheDir)
         artwork = ChannelLogos(this, network)
         epg = EpgRepository(this, network)
@@ -199,12 +207,12 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             setPadding(dp(48), dp(42), dp(48), dp(40))
             addView(text("SwiftTV", 13, TvStyle.subtle, true))
             addView(text("静享此刻直播。", 32, ink, true).apply { setPadding(0, dp(10), 0, dp(10)) })
-            addView(text("在控制中心输入 M3U 地址、导入文件或使用手机扫码添加频道。", 15, muted).apply {
+            addView(text("纯本地播放器 · 请扫码、通过手机安装助手或输入地址导入频道源。", 15, muted).apply {
                 gravity = Gravity.CENTER
             })
             val btn = Button(this@MainActivity).apply {
                 id = View.generateViewId()
-                text = "打开控制中心"
+                text = "手机扫码导入"
                 textSize = 15f
                 isAllCaps = false
                 setTextColor(TvStyle.inkOnPorcelain)
@@ -212,17 +220,20 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 background = TvStyle.porcelainSurface(this@MainActivity, 999f)
                 setPadding(dp(28), dp(12), dp(28), dp(12))
                 stateListAnimator = null
-                setOnClickListener { showSettings() }
+                setOnClickListener { showPairing(onboarding = true) }
             }
             addView(btn, LinearLayout.LayoutParams(-2, dp(46)).apply { topMargin = dp(28) })
         }
-        addView(card, FrameLayout.LayoutParams(dp(460), -2, Gravity.CENTER))
+        addView(card, FrameLayout.LayoutParams(dp(480), -2, Gravity.CENTER))
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (StartupRuntime.acceptsEntry(this, intent)) setIntent(intent)
-        else if (backgrounded || userDeparted) {
+        if (StartupRuntime.acceptsEntry(this, intent)) {
+            setIntent(intent)
+            capturePushExtra(intent)
+            if (controller != null && pendingPushB64 != null) consumePendingPush()
+        } else if (backgrounded || userDeparted) {
             startupRejected = true
             finish()
         }
@@ -241,24 +252,25 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         if (controller == null) {
             controller = PlaybackController(this, store, network, video, this)
             val channels = availableChannels()
-            val start = BuiltinPolicy.chooseStart(channels, store.snapshot().lastChannel, store.snapshot().stats)
+            val start = CatalogSelection.chooseStart(channels, store.snapshot().lastChannel, store.snapshot().stats)
             landing.visibility = if (start == null) View.VISIBLE else View.GONE
             if (overlayMode == "pair" || overlayMode == "export") {
-                showPairing(overlayMode == "export")
+                showPairing(export = overlayMode == "export", onboarding = start == null && overlayMode == "pair")
             } else if (start == null) {
-                showSettings(focusPreset = true)
+                showPairing(onboarding = true)
             } else {
-                controller?.tune(start, diagnoseStartup = !skipBuiltinsForTest)
+                controller?.tune(start, diagnoseStartup = !isolatedTestMode)
                 if (overlayMode == "channels") {
                     overlayMode = ""; restoringMenu = true
                     try { showChannels(restore = true) } finally { restoringMenu = false }
                 }
             }
-            if (!skipBuiltinsForTest) {
+            if (!isolatedTestMode) {
                 refreshSubscriptions(false)
                 refreshEpg(false)
             }
         }
+        if (pendingPushB64 != null) consumePendingPush()
         blurEngine.syncState()
     }
 
@@ -485,7 +497,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
         panel.addSectionHeader("可用线路（${channel.sources.size}）")
         if (channel.sources.isEmpty()) {
-            panel.addInfoBlock(channel.unavailableReason.ifEmpty { "此频道暂无可用内置线路，可在控制中心导入自定义订阅。" })
+            panel.addInfoBlock(channel.unavailableReason.ifEmpty { "此频道暂无可用线路，可通过手机扫码或控制中心更新订阅。" })
         } else {
             channel.sources.forEachIndexed { index, source ->
                 val stat = store.snapshot().stats[sourceId(source.url)]
@@ -497,11 +509,9 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                     stat.successes > 0 -> "已出画 · 首帧 ${stat.firstFrameMs}ms" to TvStyle.sage
                     else -> "待检测" to TvStyle.subtle
                 }
-                val note = BuiltinPolicy.note(source)
-                val sub = health + if (note.isNotEmpty()) "\n$note" else ""
                 panel.addActionRow(
                     title = "线路 ${index + 1} · ${SourceRoutes.label(source)}",
-                    subtitle = sub,
+                    subtitle = health,
                     accessory = java.net.URI(source.url).host.take(18),
                     statusColor = dotColor
                 ) { _, _ ->
@@ -518,31 +528,13 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         panel.focusFirstRow()
     }
 
-    private fun routingLabel(): String {
-        val mode = RoutingMode.read(this)
-        return if (mode == RoutingMode.AUTO) when (controller?.effectiveRoutingMode()) {
-            RoutingMode.PUBLIC_FIRST -> "自动 · 公网优先"
-            RoutingMode.HENAN_FIRST -> "自动 · 河南移动可用"
-            else -> mode.title
-        } else mode.title
-    }
+    private fun routingLabel(): String = RoutingMode.read(this).title
 
-    private fun showSettings(focusPreset: Boolean = false) {
-        val panel = sheet("", "控制中心", "SwiftTV ${BuildConfig.VERSION_NAME}", "settings")
+    private fun showSettings() {
+        val panel = sheet("", "控制中心", "SwiftTV ${BuildConfig.VERSION_NAME} · 纯本地播放器", "settings")
 
         panel.addSectionHeader("播放与画面体验")
-        if (BuildConfig.HAS_BUNDLED_CATALOG || store.snapshot().subscriptions.any { it.id.startsWith("builtin-") }) {
-            panel.addSwitchRow("内置精选频道", "随包精选频道表（按硬件能力自动开放 4K 频道）", BuiltinCatalog.enabled(this)) {
-                val next = !BuiltinCatalog.enabled(this)
-                BuiltinCatalog.setEnabled(this, store, next)
-                val channels = availableChannels()
-                ribbon?.updateCatalog(channels, store.snapshot().favorites)
-                if (channels.isEmpty()) controller?.stop()
-                else BuiltinPolicy.chooseStart(channels, store.snapshot().lastChannel, store.snapshot().stats)?.let { controller?.tune(it) }
-                next
-            }
-        }
-        panel.addSegmentRow("优先路由策略", "自动模式按当前网络实际出画结果选路。确认键或方向键可手动切换", routingLabel()) {
+        panel.addSegmentRow("优先路由策略", "自动按本机网络 IPv6 可达性、实测延迟与并发竞速选路", routingLabel()) {
             RoutingMode.save(this, RoutingMode.read(this).next())
             availableChannels().firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it) }
             routingLabel()
@@ -558,28 +550,13 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
         panel.addActionRow("开机自动看直播", StartupRuntime.settingLabel(this), "配置 →") { _, _ -> showStartupSettings() }
 
-        panel.addSectionHeader("订阅源、台标与节目单（EPG）")
-        panel.addActionRow("手机扫码管理台", "同一 Wi-Fi 扫码导入 M3U、配置节目单与管理订阅", "打开二维码 →") { _, _ -> showPairing() }
-        val guovinIpv6Row = panel.addActionRow("导入 Guovin 国内 IPv6 频道（推荐）", "适合中国移动 / 联通 / 电信宽带，含国内骨干 IPv6 直连线路", "拉取预览 →") { _, _ ->
-            fetchPreset(PlaylistPreset.GUOVIN_IPV6, tryOnSave = true)
-        }
-        val guovinDualRow = panel.addActionRow("导入 Guovin 双栈全量频道（IPv6 + IPv4）", "自动聚合国内 IPv6 与公网 IPv4，按当前网络智能优先国内源", "拉取预览 →") { _, _ ->
-            fetchPreset(PlaylistPreset.GUOVIN_ALL, tryOnSave = true)
-        }
-        panel.addActionRow("导入范明明精选 IPv6 频道（82 台）", "央视卫视纯净版 · 移动骨干直连 · 自带节目单", "拉取预览 →") { _, _ ->
-            fetchPreset(PlaylistPreset.FANMINGMING_IPV6, tryOnSave = true)
-        }
-        panel.addActionRow("导入 Guovin IPv4 备用频道", "仅 IPv4 线路（海外节点较多，无 IPv6 时作为补充）", "拉取预览 →") { _, _ ->
-            fetchPreset(PlaylistPreset.GUOVIN, tryOnSave = controller?.current == null || controller?.exhausted == true)
-        }
-        panel.addActionRow("导入河南移动全量源（HA-CMCC-IPTV）", "预览 Elykia 外部订阅 · 需河南移动 IPTV 网络", "拉取预览 →") { _, _ ->
-            fetchPreset(PlaylistPreset.HENAN)
-        }
-        panel.addActionRow("手动输入订阅地址", "输入任意 HTTP/HTTPS M3U 频道表链接", "输入 →") { _, _ -> manualImport() }
+        panel.addSectionHeader("订阅源与节目单（EPG）")
+        panel.addActionRow("手机扫码管理台", "同一 Wi-Fi 扫码导入 M3U / HLS 直链、配置节目单与管理订阅", "打开二维码 →") { _, _ -> showPairing() }
+        panel.addActionRow("手动输入订阅或直播流地址", "支持 M3U 频道表及单频道 HLS (.m3u8) / TS / FLV 直链", "输入 →") { _, _ -> manualImport() }
         panel.addActionRow("从电视本地文件导入", "选择本地存储中的 .m3u / .m3u8 文件", "浏览 →") { _, _ ->
             StartupRuntime.beginInternalSystemFlow()
             try { openDocumentLauncher.launch(arrayOf("*/*")) }
-            catch (_: Exception) { toast("这台电视未提供文件选择器，请使用手机扫码导入") }
+            catch (_: Exception) { toast("这台电视未提供文件选择器，请使用手机扫码或安装助手导入") }
         }
         panel.addActionRow("设置 XMLTV 节目单地址", if (store.snapshot().customEpgUrl.isEmpty()) "支持 .xml / .xml.gz（未配置时保持纯净静默）" else "已配置自定义节目单", "配置 →") { _, _ ->
             configureEpgDialog()
@@ -597,7 +574,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             }
             if (selected.isNotEmpty()) startProbe(selected) else toast("当前分类没有可测线路")
         }
-        panel.addActionRow("扫码导出脱敏诊断", "在手机下载隐藏密钥的本机播放质量 JSON", "导出 →") { _, _ -> showPairing(true) }
+        panel.addActionRow("扫码导出脱敏诊断", "在手机下载隐藏密钥的本机播放质量 JSON", "导出 →") { _, _ -> showPairing(export = true) }
         panel.addActionRow("本机硬件解码能力", if (codecProfile.supports4kHevc50) "检测到 4K HEVC 硬件解码能力" else "1080p 优先", "详情") { _, _ ->
             val note = if (codecProfile.supports4kHevc50) "检测到 4K HEVC 硬件解码能力。实际播放由线路与设备决定。"
                 else "优先选择 1080p H.264/AAC 线路。"
@@ -607,36 +584,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             val license = assets.open("licenses/Apache-2.0.txt").bufferedReader().use { it.readText() }
             showModal("Apache-2.0", license, primaryLabel = "关闭", secondaryLabel = null) { true }
         }
-        if (focusPreset) {
-            if (controller?.hasGlobalIpv6() == true) guovinIpv6Row.requestFocus() else guovinDualRow.requestFocus()
-        } else panel.focusFirstRow()
-    }
-
-    private fun fetchPreset(preset: PlaylistPreset, tryOnSave: Boolean = false) {
-        if (presetLoading) return
-        presetLoading = true
-        val generation = overlayGeneration
-        toast("正在拉取 ${preset.title} 频道表…")
-        io.execute {
-            var result: ImportPreview? = null
-            var lastError: Exception? = null
-            for (url in preset.urls) {
-                try {
-                    result = createPreview(JSONObject().put("url", url).put("name", preset.title))
-                    break
-                } catch (error: Exception) {
-                    lastError = error
-                }
-            }
-            postUi {
-                presetLoading = false
-                if (!backgrounded && !isFinishing && overlayGeneration == generation && !modalHost.isNotEmpty()) {
-                    val value = result
-                    if (value != null) confirmPreview(value, tryOnSave)
-                    else toast("拉取失败：" + DiagnosticRedaction.message(lastError?.message ?: "请检查网络连接"))
-                }
-            }
-        }
+        panel.focusFirstRow()
     }
 
     private fun showStartupSettings() {
@@ -713,13 +661,12 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun deleteSubscriptionById(id: String) {
-        if (id.startsWith("builtin-")) BuiltinCatalog.setEnabled(this, store, false)
-        else store.removeSubscription(id)
+        store.removeSubscription(id)
         val channels = availableChannels()
         ribbon?.updateCatalog(channels, store.snapshot().favorites)
         val currentId = controller?.current?.id
         val remaining = channels.firstOrNull { it.id == currentId && it.sources.isNotEmpty() }
-            ?: BuiltinPolicy.chooseStart(channels, "", store.snapshot().stats)
+            ?: CatalogSelection.chooseStart(channels, "", store.snapshot().stats)
         controller?.stop()
         remaining?.let { controller?.tune(it) }
         refreshEpg(false)
@@ -729,7 +676,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         showModal(
             title = "设置节目单（XMLTV）地址",
             message = "支持标准 XMLTV（.xml 或 .xml.gz），留空保存即可清除。未匹配到真实节目时保持静默。",
-            inputHint = "https://epg.zsdc.eu.org/t.xml",
+            inputHint = "https://example.com/epg.xml",
             initialInput = store.snapshot().customEpgUrl,
             primaryLabel = "保存设置"
         ) { raw ->
@@ -748,21 +695,21 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
     private fun manualImport() {
         showModal(
-            title = "添加自定义 M3U 订阅",
-            message = "输入你有权使用的 HTTP/HTTPS M3U 频道表链接。",
-            inputHint = "https://elykia093.github.io/HA-CMCC-IPTV/index.m3u",
+            title = "添加订阅或单频道直播流",
+            message = "输入 M3U 频道表链接，或直接输入单频道 HLS（.m3u8）/ TS / FLV 直播流地址。",
+            inputHint = "https://example.com/channels.m3u",
             primaryLabel = "读取预览"
         ) { raw ->
             val url = raw.trim()
             if (url.isEmpty()) {
-                toast("请填写订阅地址")
+                toast("请填写订阅或直播流地址")
                 false
             } else {
-                toast("正在读取频道表…")
+                toast("正在读取频道信息…")
                 io.execute {
                     try {
                         val result = createPreview(JSONObject().put("url", url))
-                        postUi { confirmPreview(result) }
+                        postUi { confirmPreview(result, tryOnSave = true) }
                     } catch (e: Exception) { postUi { toast(e.message ?: "读取失败") } }
                 }
                 true
@@ -770,18 +717,54 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
     }
 
-    private fun confirmPreview(value: ImportPreview, tryOnSave: Boolean = false) {
+    private fun consumePendingPush() {
+        val raw = pendingPushB64 ?: return
+        pendingPushB64 = null
+        val cfg = PushPayload.decode(raw)
+        if (cfg == null) {
+            toast("手机推送的地址格式无效")
+            return
+        }
+        toast("正在读取手机推送的直播源…")
+        io.execute {
+            try {
+                val previewData = createPreview(JSONObject().put("url", cfg.url).put("name", cfg.name))
+                val resolvedSub = if (cfg.localSnapshot) {
+                    previewData.subscription.copy(
+                        id = sourceId("push:" + System.nanoTime()),
+                        name = cfg.name.ifBlank { "手机推送频道表" },
+                        url = ""
+                    )
+                } else {
+                    previewData.subscription
+                }
+                val finalPreview = previewData.copy(subscription = resolvedSub)
+                postUi { confirmPreview(finalPreview, tryOnSave = true, pendingEpgUrl = cfg.epgUrl) }
+            } catch (e: Exception) {
+                postUi { toast("读取手机推送失败：" + DiagnosticRedaction.message(e.message ?: "请检查网络")) }
+            }
+        }
+    }
+
+    private fun confirmPreview(value: ImportPreview, tryOnSave: Boolean = false, pendingEpgUrl: String = "") {
+        val singleStream = value.parsed.entries.size == 1 && value.parsed.entries.first().group == M3uParser.SINGLE_STREAM_GROUP
         val chCount = value.parsed.entries.map { it.channelId }.distinct().size
-        val epgHint = if (value.parsed.epgUrls.isNotEmpty()) "\n· 已自动识别随表节目单（EPG）" else ""
+        val epgHint = if (pendingEpgUrl.isNotBlank() || value.parsed.epgUrls.isNotEmpty()) "\n· 含节目单（EPG）配置" else ""
         val sampleNames = value.parsed.entries.map { it.name }.distinct().take(10).joinToString("  ·  ")
+        val summary = if (singleStream) {
+            "单频道直播流 · ${value.parsed.entries.first().name}$epgHint"
+        } else {
+            "共解析出 $chCount 个频道、${value.parsed.entries.size} 条线路$epgHint\n\n示例频道：$sampleNames"
+        }
         showModal(
             title = "确认导入「${value.subscription.name}」",
-            message = "共解析出 $chCount 个频道、${value.parsed.entries.size} 条线路$epgHint\n\n示例频道：$sampleNames",
+            message = summary,
             primaryLabel = "保存到电视"
         ) {
             io.execute {
                 try {
                     store.replaceSubscription(value.subscription, value.parsed)
+                    if (pendingEpgUrl.isNotBlank()) store.setCustomEpgUrl(pendingEpgUrl)
                     postUi { imported(value.takeIf { tryOnSave }) }
                 }
                 catch (e: Exception) { postUi { toast("保存失败：" + e.message) } }
@@ -792,12 +775,15 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
     private fun createPreview(data: JSONObject): ImportPreview {
         val url = data.optString("url").trim()
-        val download = if (url.isNotEmpty()) network.download(url) else null
-        val body = download?.text ?: data.optString("content")
-        val parsed = M3uParser.parse(body)
         val explicitName = data.optString("name").trim().take(80)
+        val download = if (url.isNotEmpty()) network.downloadForImport(url) else null
+        val parsed = when {
+            download?.directStreamMime != null -> M3uParser.singleStreamPlaylist(url, explicitName)
+            else -> M3uParser.parseImport(download?.text ?: data.optString("content"), url, explicitName)
+        }
         val name = when {
             explicitName.isNotEmpty() -> explicitName
+            parsed.entries.size == 1 && parsed.entries.first().group == M3uParser.SINGLE_STREAM_GROUP -> parsed.entries.first().name
             url.isNotEmpty() -> httpUri(url).host
             else -> "本地频道表"
         }
@@ -814,7 +800,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     @SuppressLint("SetTextI18n")
-    private fun showPairing(export: Boolean = false) {
+    private fun showPairing(export: Boolean = false, onboarding: Boolean = false) {
         beginOverlay(if (export) "export" else "pair")
         val thisSession = session
         val host = localAddress()
@@ -824,43 +810,76 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             setPadding(dp(42), dp(32), dp(42), dp(32))
             elevation = dp(14).toFloat()
         }
-        val cardW = minOf(dp(760), (resources.displayMetrics.widthPixels * 0.88f).toInt())
+        val cardW = minOf(dp(800), (resources.displayMetrics.widthPixels * 0.90f).toInt())
         overlay.addView(content, FrameLayout.LayoutParams(cardW, -2, Gravity.CENTER).apply {
             setMargins(dp(24), dp(24), dp(24), dp(24))
         })
 
         val copy = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, dp(36), 0) }
         content.addView(copy, LinearLayout.LayoutParams(0, -2, 1f))
-        copy.addView(text("局域网无线连接", 12, TvStyle.subtle, true))
-        copy.addView(text(if (export) "导出脱敏诊断到手机" else "手机扫码管理电视", 25, ink, true).apply { setPadding(0, dp(8), 0, dp(10)) })
+        copy.addView(text(if (onboarding) "纯本地播放器 · 欢迎使用" else "局域网无线连接", 12, TvStyle.subtle, true))
         copy.addView(text(
-            if (export) "手机连接同一局域网扫码即可下载 JSON 报告。\n完整线路路径、令牌与请求头均已自动脱敏。"
-            else "① 手机连接同一局域网\n② 扫码添加 M3U 订阅、上传文件或设置节目单\n③ 预览频道后保存，数据存于电视本机",
+            when {
+                export -> "导出脱敏诊断到手机"
+                onboarding -> "手机扫码导入直播源"
+                else -> "手机扫码管理电视"
+            },
+            25, ink, true
+        ).apply { setPadding(0, dp(8), 0, dp(10)) })
+        copy.addView(text(
+            when {
+                export -> "手机连接同一局域网扫码即可下载 JSON 报告。\n完整线路路径、令牌与请求头均已自动脱敏。"
+                onboarding -> "SwiftTV 不内置任何直播源，请导入您合法拥有的 M3U 或单频道 .m3u8 链接：\n\n① 手机连接同一 Wi-Fi，扫码即可添加或上传频道表\n② 也可使用「SwiftTV 安装助手」在手机端粘贴链接一键直推"
+                else -> "① 手机连接同一局域网\n② 扫码添加 M3U / HLS 直链、上传文件或设置节目单\n③ 预览频道后保存，数据存于电视本机"
+            },
             14, muted
         ).apply { setLineSpacing(dp(6).toFloat(), 1f) })
 
-        val close = Button(this).apply {
+        fun makeActionPill(label: String, primary: Boolean = false, onClick: () -> Unit) = Button(this).apply {
             id = View.generateViewId()
-            text = "返回"
+            text = label
             textSize = 14f
             isAllCaps = false
-            setTextColor(ink)
-            background = TvStyle.pillButton(this@MainActivity)
-            setPadding(dp(22), dp(8), dp(22), dp(8))
+            setTextColor(if (primary) TvStyle.inkOnPorcelain else ink)
+            typeface = Typeface.create("sans-serif-medium", if (primary) Typeface.BOLD else Typeface.NORMAL)
+            background = if (primary) TvStyle.porcelainSurface(this@MainActivity, 999f) else TvStyle.pillButton(this@MainActivity)
+            setPadding(dp(20), dp(8), dp(20), dp(8))
             stateListAnimator = null
-            setOnFocusChangeListener { _, focused ->
-                setTextColor(if (focused) TvStyle.inkOnPorcelain else ink)
-                typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
+            if (!primary) {
+                setOnFocusChangeListener { _, focused ->
+                    setTextColor(if (focused) TvStyle.inkOnPorcelain else ink)
+                    typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
+                }
             }
-            setOnClickListener { backThroughMenus() }
+            setOnClickListener { onClick() }
         }
-        copy.addView(close, LinearLayout.LayoutParams(-2, dp(40)).apply { topMargin = dp(24) })
+
+        val actionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val primaryFocusView: View
+        if (onboarding && !export) {
+            val manualBtn = makeActionPill("手动输入地址", primary = true) { manualImport() }
+            val fileBtn = makeActionPill("本地文件") {
+                StartupRuntime.beginInternalSystemFlow()
+                try { openDocumentLauncher.launch(arrayOf("*/*")) }
+                catch (_: Exception) { toast("这台电视未提供文件选择器，请使用手机扫码或安装助手导入") }
+            }
+            val settingsBtn = makeActionPill("控制中心") { showSettings() }
+            actionRow.addView(manualBtn, LinearLayout.LayoutParams(-2, dp(40)))
+            actionRow.addView(fileBtn, LinearLayout.LayoutParams(-2, dp(40)).apply { leftMargin = dp(10) })
+            actionRow.addView(settingsBtn, LinearLayout.LayoutParams(-2, dp(40)).apply { leftMargin = dp(10) })
+            primaryFocusView = manualBtn
+        } else {
+            val close = makeActionPill("返回") { backThroughMenus() }
+            actionRow.addView(close, LinearLayout.LayoutParams(-2, dp(40)))
+            primaryFocusView = close
+        }
+        copy.addView(actionRow, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(24) })
 
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
         content.addView(right, LinearLayout.LayoutParams(dp(240), -2))
         if (host == null) {
             right.addView(text("未检测到局域网连接\n请先连接 Wi-Fi 或网线", 15, muted).apply { gravity = Gravity.CENTER })
-            close.requestFocus()
+            primaryFocusView.requestFocus()
             return
         }
         try {
@@ -880,7 +899,6 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                             .put("id", s.id)
                             .put("name", DiagnosticRedaction.message(s.name))
                             .put("origin", if (s.url.isEmpty()) "电视本机" else DiagnosticRedaction.origin(s.url))
-                            .put("builtin", s.id.startsWith("builtin-"))
                             .put("hasEpg", s.epgUrl.isNotEmpty())
                     })
                     JSONObject()
@@ -895,7 +913,6 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                     when (data.optString("action")) {
                         "deleteSubscription" -> {
                             val id = data.getString("id")
-                            require(!id.startsWith("builtin-")) { "内置频道请在电视控制中心开关" }
                             postUi { deleteSubscriptionById(id) }
                             JSONObject().put("ok", true)
                         }
@@ -929,11 +946,13 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 store.replaceSubscription(next.subscription, next.parsed)
                 preview = null
                 postUi {
+                    val wasEmpty = overlayMode == "pair" && (controller?.current == null || landing.isVisible)
                     landing.visibility = View.GONE
                     val channels = availableChannels()
                     ribbon?.updateCatalog(channels, store.snapshot().favorites)
-                    if (controller?.current == null) {
-                        (channels.firstOrNull { it.id == store.snapshot().lastChannel } ?: channels.firstOrNull())?.let { controller?.tune(it) }
+                    if (wasEmpty || controller?.current == null) {
+                        if (wasEmpty && overlay.isVisible) closeOverlay(animate = false)
+                        CatalogSelection.chooseStart(channels, store.snapshot().lastChannel, store.snapshot().stats)?.let { controller?.tune(it) }
                     }
                     refreshEpg(true)
                     toast("已通过手机导入：" + next.subscription.name)
@@ -961,6 +980,10 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                     closeSession()
                     right.removeAllViews()
                     right.addView(text("二维码已过期", 16, ink))
+                    right.addView(makeActionPill("刷新二维码") {
+                        restoringMenu = true
+                        try { showPairing(export = export, onboarding = onboarding) } finally { restoringMenu = false }
+                    }, LinearLayout.LayoutParams(-2, dp(38)).apply { topMargin = dp(12) })
                 }
             }.also { handler.postDelayed(it, 5 * 60 * 1000) }
         } catch (e: Exception) { right.addView(text("无法启动配对：" + e.message, 14, muted)) }
@@ -968,7 +991,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             content.alpha = 0f; content.scaleX = 0.96f; content.scaleY = 0.96f
             content.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(220L).setInterpolator(TvStyle.springOut).start()
         }
-        close.requestFocus()
+        primaryFocusView.requestFocus()
         blurEngine.syncState()
     }
 
@@ -1017,7 +1040,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun refreshEpg(force: Boolean) {
-        if (skipBuiltinsForTest) return
+        if (isolatedTestMode) return
         val urls = store.snapshot().allEpgUrls()
         epg.refresh(urls, availableChannels(), force = force) {
             postUi {
@@ -1031,7 +1054,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private fun refreshSubscriptions(explicit: Boolean) {
         if (refreshing) { if (explicit) toast("正在后台刷新订阅…"); return }
         val now = System.currentTimeMillis()
-        val subs = store.snapshot().subscriptions.filter { !it.id.startsWith("builtin-") && it.url.isNotEmpty() && (explicit || now - it.updatedAt >= 86400000L) }
+        val subs = store.snapshot().subscriptions.filter { it.url.isNotEmpty() && (explicit || now - it.updatedAt >= 86400000L) }
         if (subs.isEmpty()) { if (explicit) toast("当前无需要刷新的远程订阅"); return }
         refreshing = true
         if (explicit) toast("正在同步远程频道表…")
@@ -1042,14 +1065,14 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                     val result = network.download(sub.url, sub.etag, sub.lastModified)
                     if (result.notModified) store.touchSubscription(sub.id, System.currentTimeMillis())
                     else {
-                        val parsed = M3uParser.parse(result.text)
+                        val parsed = M3uParser.parseImport(result.text, sub.url, sub.name)
                         val updated = sub.copy(
                             updatedAt = System.currentTimeMillis(),
                             etag = result.etag,
                             lastModified = result.lastModified,
                             epgUrl = sub.epgUrl.ifBlank { parsed.epgUrls.firstOrNull().orEmpty() }
                         )
-                        if (!sub.id.startsWith("builtin-")) store.replaceSubscription(updated, parsed)
+                        store.replaceSubscription(updated, parsed)
                     }
                     success++
                 } catch (_: Exception) { failed++ }
@@ -1122,30 +1145,15 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             toast("启动后暂无画面，可在控制中心调整信号源")
             return
         }
-        val regional = issue == StartupSourceIssue.REGIONAL_NO_PICTURE
-        val hasIpv6 = controller?.hasGlobalIpv6() == true
-        val subs = store.snapshot().subscriptions
-        val domesticPresetSaved = subs.any {
-            it.id in PlaylistPreset.GUOVIN_IPV6.subscriptionIds ||
-                it.id in PlaylistPreset.GUOVIN_ALL.subscriptionIds ||
-                it.id in PlaylistPreset.FANMINGMING_IPV6.subscriptionIds
-        }
-        val recommendedPreset = if (hasIpv6) PlaylistPreset.GUOVIN_IPV6 else PlaylistPreset.GUOVIN_ALL
-        val reason = if (regional) "当前网络上尝试的河南移动线路暂无画面。"
-            else "当前线路连接超时或暂无画面（部分纯 IPv4 海外源在国内宽带较难直连）。"
-        val next = if (domesticPresetSaved) "已导入国内 IPv6 / 双栈源。可以查看此频道的其他线路，或在控制中心尝试「范明明精选 IPv6」或刷新订阅。"
-            else if (hasIpv6) "检测到本机已开启 IPv6，推荐一键预览「Guovin 国内 IPv6」，直连国内骨干网更流畅。"
-            else "推荐一键预览「Guovin 双栈全量（IPv6+IPv4）」，或在路由器开启 IPv6 后获得更佳国内线路体验。"
         showModal(
-            title = "启动后暂无画面",
-            message = reason + "\n\n" + next,
-            primaryLabel = if (domesticPresetSaved) "查看线路" else if (hasIpv6) "预览 Guovin IPv6" else "预览 Guovin 双栈",
+            title = "当前频道暂无可用画面",
+            message = "所有候选线路均连接超时或无画面。可切换其他线路，或通过手机扫码 / 安装助手更新订阅源。",
+            primaryLabel = "查看线路",
             secondaryLabel = "稍后",
-            extraLabel = "调整信号源",
-            onExtra = { showSettings(focusPreset = true) }
+            extraLabel = "手机扫码管理",
+            onExtra = { showPairing() }
         ) {
-            if (domesticPresetSaved) showOptions(channel)
-            else fetchPreset(recommendedPreset, tryOnSave = true)
+            showOptions(channel)
             true
         }
         startupSourceDialog = modalHost.getChildAt(0)
@@ -1296,15 +1304,9 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun availableChannels(): List<Channel> {
-        val snapshot = store.snapshot()
-        val raw = snapshot.channels()
-        val projected = if (!skipBuiltinsForTest && BuiltinCatalog.enabled(this) &&
-            snapshot.subscriptions.any { it.id.startsWith("builtin-") }) {
-            BuiltinPolicy.withMissingChannels(raw, codecProfile.supports4kHevc50)
-        } else {
-            raw
-        }
-        return projected.filter { !skipBuiltinsForTest || it.id.startsWith("id:controlled-") || it.id == "id:failover" }
+        val raw = store.snapshot().channels()
+        val projected = if (isolatedTestMode) raw else CatalogSelection.gateHardware(raw, codecProfile.supports4kHevc50)
+        return projected.filter { !isolatedTestMode || it.id.startsWith("id:controlled-") || it.id == "id:failover" }
     }
 
     private fun toast(message: String) {

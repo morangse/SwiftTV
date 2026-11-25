@@ -17,6 +17,14 @@
     <string name="install_button">安装 SwiftTV</string>
     <string name="install_ready">连接电视后即可安装</string>
     <string name="auto_open">安装完成后自动打开</string>
+    <string name="push_title">推送直播源到电视</string>
+    <string name="push_subtitle">粘贴 M3U 订阅或单频道 .m3u8 链接，或选择手机里的本地文件，一键发送到电视端确认导入。</string>
+    <string name="push_url_hint">直播源 / .m3u8 链接</string>
+    <string name="push_name_hint">列表名称（选填）</string>
+    <string name="push_epg_hint">EPG 地址（选填）</string>
+    <string name="push_url_button">推送链接到电视</string>
+    <string name="push_file_button">选择手机本地 M3U 文件推送</string>
+    <string name="push_ready">连接电视并安装 SwiftTV 后，即可从手机一键推送源</string>
     <string name="help_title">电视端准备</string>
     <string name="help_body">1. 手机和电视连接同一个 Wi‑Fi，不要使用访客网络或开启 AP 隔离。\n\n2. 在电视上打开开发者选项：设置 → 关于 → 连续点击“版本号”7 次，然后进入“开发者选项”，打开“USB 调试”。\n\n3. 小米/Redmi：设置 → 关于 → 产品型号连点 7 次；部分机型还需打开“网络调试”。\n海信：设置 → 关于 → 版本号连点；开发者选项 → USB 调试。\nTCL/雷鸟：设置 → 系统 → 关于 → 版本号连点；开发者选项 → USB 调试。\n索尼/Google TV：设置 → 系统 → 关于 → 版本号连点；开发者选项 → USB 调试。Android 11+ 还可使用“无线调试”。\n创维/酷开、长虹、华为智慧屏、荣耀智慧屏：设置 → 关于本机 → 版本号连点，再打开开发者选项。\n\n4. 首次连接时电视会弹出“允许 USB 调试吗？”，请点“允许”，建议勾选“始终允许”。\n\n5. Android 11+ 电视若没有 5555 直连，请打开“无线调试”→“使用配对码配对设备”，把屏幕上的配对端口和 6 位配对码填到本应用。\n\n6. 部分电视只支持 USB ADB，不开放网络调试；这种情况下需要先用电脑执行 adb tcpip 5555，或使用电视自带的网络调试开关。</string>
     <string name="log_title">运行日志</string>

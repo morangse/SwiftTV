@@ -18,8 +18,6 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersionName
-        val bundledCatalog = file("src/main/assets/builtin-reviewed.m3u").isFile
-        buildConfigField("boolean", "HAS_BUNDLED_CATALOG", bundledCatalog.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     val releaseProperties = Properties()

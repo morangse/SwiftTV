@@ -20,9 +20,6 @@ class CatalogStore(context: Context) {
         )
         persist(next)
     }
-    @Synchronized fun installBuiltins(subscription: Subscription, parsed: ParsedPlaylist, revision: Int) {
-        persist(BuiltinPolicy.migrate(state, subscription, parsed, revision))
-    }
     @Synchronized fun removeSubscription(id: String) {
         persist(state.copy(entries = state.entries.filterNot { it.subscriptionId == id },
             subscriptions = state.subscriptions.filterNot { it.id == id }))
@@ -49,10 +46,21 @@ class CatalogStore(context: Context) {
     @Synchronized fun clearCooldown(url: String) { record(url) { it.copy(cooldownUntil = 0) } }
     @Synchronized fun diagnostics(device: String, routingPreference: String = "unknown"): String =
         CatalogDiagnostics.create(state, device, BuildConfig.VERSION_NAME, routingPreference, System.currentTimeMillis())
+
     private fun read(): CatalogState = try {
         if (!file.baseFile.exists() && !File(file.baseFile.path + ".bak").exists()) CatalogState()
         else decode(file.openRead().use { it.readBytes().toString(Charsets.UTF_8) }).let { loaded ->
-            loaded.copy(stats = loaded.stats.mapValues { (_, s) -> if (s.lastOutcome == "connecting") s.copy(lastOutcome = "interrupted") else s })
+            // Strip any legacy bundled subscriptions from earlier builds on upgrade.
+            val cleanEntries = loaded.entries.filterNot { it.subscriptionId.startsWith("builtin-") }
+            val cleanSubs = loaded.subscriptions.filterNot { it.id.startsWith("builtin-") }
+            val cleanStats = loaded.stats.mapValues { (_, s) ->
+                if (s.lastOutcome == "connecting") s.copy(lastOutcome = "interrupted") else s
+            }
+            val cleaned = loaded.copy(entries = cleanEntries, subscriptions = cleanSubs, stats = cleanStats)
+            if (cleanEntries.size != loaded.entries.size || cleanSubs.size != loaded.subscriptions.size) {
+                runCatching { persist(cleaned) }
+            }
+            cleaned
         }
     } catch (_: Exception) { CatalogState() }
 
@@ -64,8 +72,9 @@ class CatalogStore(context: Context) {
             state = next
         } catch (error: Exception) { file.failWrite(stream); throw error }
     }
+
     companion object {
-        fun encode(s: CatalogState): String = JSONObject().put("version", 1).put("builtinRevision", s.builtinRevision)
+        fun encode(s: CatalogState): String = JSONObject().put("version", 1)
             .put("customEpgUrl", s.customEpgUrl)
             .put("entries", JSONArray(s.entries.map { e -> JSONObject()
                 .put("id", e.channelId).put("name", e.name).put("group", e.group).put("url", e.url)
@@ -106,7 +115,7 @@ class CatalogStore(context: Context) {
                         x.optInt("failures", if (x.optString("error").isNotEmpty()) maxOf(1, x.optInt("attempts") - x.optInt("successes")) else 0),
                         x.optInt("cancelled", if (x.optString("error").isEmpty()) maxOf(0, x.optInt("attempts") - x.optInt("successes")) else 0),
                         x.optString("lastOutcome"))
-                }, root.optInt("builtinRevision"), root.optString("customEpgUrl"))
+                }, root.optString("customEpgUrl"))
         }
         private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
     }

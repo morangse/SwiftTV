@@ -33,7 +33,6 @@ data class CatalogState(
     val favorites: Set<String> = emptySet(),
     val lastChannel: String = "",
     val stats: Map<String, SourceStat> = emptyMap(),
-    val builtinRevision: Int = 0,
     val customEpgUrl: String = ""
 ) {
     fun channels(): List<Channel> = ChannelOrdering.order(entries.groupBy { it.channelId }.map { (id, list) ->
@@ -47,6 +46,33 @@ data class CatalogState(
             if (sub.epgUrl.isNotBlank()) add(sub.epgUrl.trim())
         }
     }.distinct()
+}
+
+/** Pure channel gating and initial channel selection helpers without any bundled defaults. */
+object CatalogSelection {
+    const val PROFILE_4K_HEVC50 = "4k-hevc50"
+
+    fun requires4kHevc50(entry: Entry): Boolean =
+        entry.profile.equals(PROFILE_4K_HEVC50, true)
+
+    fun gateHardware(channels: List<Channel>, supports4kHevc50: Boolean): List<Channel> =
+        channels.map { channel ->
+            val compatible = channel.sources.filter { supports4kHevc50 || !requires4kHevc50(it) }
+            val gatedOut4k = compatible.isEmpty() && channel.sources.any { requires4kHevc50(it) }
+            channel.copy(
+                sources = compatible,
+                unavailableReason = if (gatedOut4k) "4K HEVC · 本机无硬解" else channel.unavailableReason
+            )
+        }
+
+    fun chooseStart(channels: List<Channel>, last: String, stats: Map<String, SourceStat>): Channel? {
+        val playable = channels.filter { it.sources.isNotEmpty() }
+        playable.firstOrNull { it.id == last }?.let { return it }
+        playable.firstOrNull { c ->
+            c.sources.any { (stats[sourceId(it.url)]?.successes ?: 0) > 0 && stats[sourceId(it.url)]?.error.isNullOrEmpty() }
+        }?.let { return it }
+        return playable.firstOrNull()
+    }
 }
 
 fun sourceId(url: String): String = MessageDigest.getInstance("SHA-256")
@@ -131,7 +157,77 @@ object ChannelIdentity {
 
 object M3uParser {
     const val MAX_BYTES = 2 * 1024 * 1024
+    const val SINGLE_STREAM_GROUP = "单频道直连"
     private val attributes = Regex("""([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s]+))""")
+    private val genericUrlStems = setOf("index", "live", "playlist", "stream", "master", "chunklist", "manifest", "1", "2")
+
+    fun isHlsManifest(text: String): Boolean {
+        val lines = text.removePrefix("\uFEFF").lineSequence().map { it.trim() }.toList()
+        val headerLine = lines.firstOrNull { it.isNotEmpty() } ?: return false
+        return headerLine.startsWith("#EXTM3U") && lines.any { it.startsWith("#EXT-X-") }
+    }
+
+    /**
+     * Parses a user import payload: either a multi-channel M3U playlist or a single-channel HLS (.m3u8) manifest.
+     */
+    fun parseImport(text: String, sourceUrl: String = "", explicitName: String = ""): ParsedPlaylist {
+        require(text.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "频道表不能超过 2 MB" }
+        val lines = text.removePrefix("\uFEFF").lineSequence().map { it.trim() }.toList()
+        val headerLine = lines.firstOrNull { it.isNotEmpty() }
+        require(headerLine?.startsWith("#EXTM3U") == true) {
+            "不是有效的 M3U 频道表或 HLS 播放清单，文件需要以 #EXTM3U 开头"
+        }
+        if (lines.none { it.startsWith("#EXT-X-") }) return parse(text)
+
+        val trimmedUrl = sourceUrl.trim()
+        if (trimmedUrl.isNotEmpty()) {
+            return singleStreamPlaylist(trimmedUrl, explicitName)
+        }
+
+        // Local .m3u8 file: only master playlists carrying an absolute HTTP/HTTPS variant URL can be imported without a base URL.
+        val variantUrl = findAbsoluteHlsVariantUrl(lines)
+            ?: error("这是本地 HLS 分片清单，缺少服务器基址；请直接粘贴该 .m3u8 的完整 HTTP/HTTPS 网址导入")
+        return singleStreamPlaylist(variantUrl, explicitName)
+    }
+
+    fun singleStreamPlaylist(streamUrl: String, explicitName: String = ""): ParsedPlaylist {
+        val uri = httpUri(streamUrl)
+        val rawCandidate = explicitName.trim().take(80).ifBlank { inferChannelName(uri) }
+        val identity = ChannelIdentity.resolve("", rawCandidate)
+        val entry = Entry(identity.first, identity.second, SINGLE_STREAM_GROUP, streamUrl.trim())
+        return ParsedPlaylist(listOf(entry), skipped = 0)
+    }
+
+    private fun inferChannelName(uri: URI): String {
+        val segments = uri.path.orEmpty().split('/').filter { it.isNotBlank() }
+        val lastStem = segments.lastOrNull()?.substringBeforeLast('.')?.trim().orEmpty()
+        if (lastStem.isNotEmpty() && lastStem.lowercase(Locale.ROOT) !in genericUrlStems) {
+            return lastStem.take(40)
+        }
+        val parent = segments.dropLast(1).lastOrNull()?.trim().orEmpty()
+        if (parent.isNotEmpty() && parent.lowercase(Locale.ROOT) !in setOf("live", "hls", "stream", "tv", "video")) {
+            return parent.take(40)
+        }
+        return uri.host.orEmpty().ifBlank { "直播流" }
+    }
+
+    private fun findAbsoluteHlsVariantUrl(lines: List<String>): String? {
+        var expectVariantUrl = false
+        for (line in lines) {
+            if (line.isEmpty()) continue
+            if (line.startsWith("#EXT-X-STREAM-INF")) {
+                expectVariantUrl = true
+                continue
+            }
+            if (line.startsWith("#")) continue
+            if (expectVariantUrl) {
+                expectVariantUrl = false
+                if (runCatching { httpUri(line) }.isSuccess) return line
+            }
+        }
+        return null
+    }
+
     fun parse(text: String): ParsedPlaylist {
         require(text.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "频道表不能超过 2 MB" }
         val lines = text.removePrefix("\uFEFF").lineSequence().map { it.trim() }.toList()
@@ -139,7 +235,7 @@ object M3uParser {
         require(headerLine?.startsWith("#EXTM3U") == true) {
             "不是有效的 M3U 频道表，文件需要以 #EXTM3U 开头"
         }
-        require(lines.none { it.startsWith("#EXT-X-") }) { "这是单频道 HLS 视频清单，请导入频道表而非视频分片清单" }
+        require(lines.none { it.startsWith("#EXT-X-") }) { "这是单频道 HLS 视频清单，请使用地址导入或导入 M3U 频道表" }
         val headerAttrs = attributes.findAll(headerLine!!).associate { m ->
             m.groupValues[1].lowercase(Locale.ROOT) to m.groupValues.drop(2).firstOrNull { it.isNotEmpty() }.orEmpty()
         }

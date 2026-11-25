@@ -181,4 +181,48 @@ class NetworkTest {
             assertEquals(3, server.requestCount)
         } finally { network.close(); server.shutdown(); cacheDir.deleteRecursively() }
     }
+
+    @Test fun downloadForImportDetectsPlaylistHlsManifestAndBinaryStream() {
+        val server = MockWebServer(); server.start()
+        val network = Network(null)
+        try {
+            server.enqueue(MockResponse().setBody("#EXTM3U\n#EXTINF:-1,CCTV-1\nhttps://a.example/1.m3u8\n"))
+            val playlist = network.downloadForImport(server.url("/list.m3u").toString())
+            assertNull(playlist.directStreamMime)
+            assertFalse(M3uParser.isHlsManifest(playlist.text!!))
+
+            server.enqueue(MockResponse().setBody("#EXTM3U\n#EXT-X-TARGETDURATION:6\n#EXTINF:6,\nseg.ts\n"))
+            val hls = network.downloadForImport(server.url("/live.m3u8").toString())
+            assertNull(hls.directStreamMime)
+            assertTrue(M3uParser.isHlsManifest(hls.text!!))
+
+            val tsPackets = ByteArray(188 * 3).also { buf ->
+                for (i in 0..2) buf[i * 188] = 0x47
+            }
+            server.enqueue(MockResponse().setBody(okio.Buffer().write(tsPackets)))
+            val binary = network.downloadForImport(server.url("/stream.ts").toString())
+            assertNull(binary.text)
+            assertEquals("video/mp2t", binary.directStreamMime)
+        } finally { network.close(); server.shutdown() }
+    }
+
+    @Test fun raceProbeSelectsFastestHealthyCandidateDespiteErrors() {
+        val badServer = MockWebServer(); badServer.start()
+        val goodServer = MockWebServer(); goodServer.start()
+        val network = Network(null)
+        val latch = java.util.concurrent.CountDownLatch(1)
+        var picked: Entry? = null
+        try {
+            badServer.enqueue(MockResponse().setResponseCode(503).setBody("unavailable"))
+            goodServer.enqueue(MockResponse().setBody("#EXTM3U\n#EXT-X-TARGETDURATION:4\nseg.ts\n"))
+            val bad = Entry("c1", "CCTV-1", "央视", badServer.url("/bad.m3u8").toString())
+            val good = Entry("c1", "CCTV-1", "央视", goodServer.url("/good.m3u8").toString())
+            network.raceProbe(listOf(bad, good)) { entry, _ ->
+                picked = entry
+                latch.countDown()
+            }
+            assertTrue(latch.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(good, picked)
+        } finally { network.close(); badServer.shutdown(); goodServer.shutdown() }
+    }
 }

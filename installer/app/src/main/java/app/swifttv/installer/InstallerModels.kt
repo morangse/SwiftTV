@@ -129,7 +129,8 @@ enum class BusyKind {
     SCANNING,
     CONNECTING,
     PAIRING,
-    INSTALLING
+    INSTALLING,
+    PUSHING
 }
 
 enum class InstallState {
@@ -138,6 +139,13 @@ enum class InstallState {
     SUCCESS,
     FAILED,
     NEED_UNINSTALL
+}
+
+enum class PushState {
+    IDLE,
+    PUSHING,
+    SUCCESS,
+    FAILED
 }
 
 data class LogLine(
@@ -162,6 +170,8 @@ data class InstallerUiState(
     val installProgressLabel: String = "",
     val autoOpen: Boolean = true,
     val pendingConflictPath: String? = null,
+    val pushState: PushState = PushState.IDLE,
+    val pushMessage: String = "",
     val logLines: List<LogLine> = emptyList(),
     val helpExpanded: Boolean = false
 ) {

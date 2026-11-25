@@ -61,12 +61,22 @@ data class StreamSpec(
 
 enum class RecoveryAction { RESYNC_LIVE_EDGE, RECONNECT_SAME_SOURCE, FAIL_AND_COOL }
 
-/** Pure playback recovery policy so live-edge resync and transient drop budgets stay testable. */
+/** Pure playback recovery policy: staged watchdogs and exponential cooldowns keep failover fast without sacrificing high-bitrate streams. */
 object PlaybackRecoveryPolicy {
     const val MAX_LIVE_EDGE_RESYNCS = 2
     const val MAX_TRANSIENT_RECONNECTS = 1
     const val MIN_SUSTAINED_MS_FOR_RECONNECT = 10_000L
     const val RECONNECT_DELAY_MS = 800L
+    const val NO_TRACK_TIMEOUT_MS = 3_500L
+    const val FIRST_FRAME_TIMEOUT_MS = 7_500L
+    const val REBUFFER_TIMEOUT_MS = 5_000L
+    const val NO_PROGRESS_TIMEOUT_MS = 6_000L
+
+    fun cooldownMs(consecutiveFailures: Int): Long = when {
+        consecutiveFailures <= 1 -> 120_000L
+        consecutiveFailures == 2 -> 600_000L
+        else -> 1_800_000L
+    }
 
     fun decide(
         errorCode: Int?,
@@ -113,8 +123,6 @@ class PlaybackController(
     }
     private val handler = Handler(Looper.getMainLooper())
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
-    private val automaticRouting = AutomaticSourceRouting()
-    private var attemptNetwork: Long? = null
     private var startupSourceCheck: StartupSourceCheck? = null
     private val codecProfile = HardwareCodecProbe.profile(context)
     private val selector = DefaultTrackSelector(context).apply {
@@ -149,6 +157,7 @@ class PlaybackController(
     private var entry: Entry? = null
     private var queue: List<Entry> = emptyList()
     private var queueIndex = 0
+    private var manualPreferred = false
     private var switchId = ""
     private var requestedAt = 0L
     private var sourceStartedAt = 0L
@@ -169,6 +178,7 @@ class PlaybackController(
     private var closed = false
     private var warmCall: Call? = null
     private var sniffCall: Call? = null
+    private var cancelRace: (() -> Unit)? = null
     private var pendingTune: Runnable? = null
     private var pendingReconnect: Runnable? = null
     private var probeItems: List<Pair<Channel, Entry>> = emptyList()
@@ -208,7 +218,7 @@ class PlaybackController(
         }
     }
 
-    fun effectiveRoutingMode(): RoutingMode = automaticRouting.effective(activeNetworkId(), RoutingMode.read(context))
+    fun effectiveRoutingMode(): RoutingMode = RoutingMode.read(context)
 
     fun tune(
         channel: Channel,
@@ -242,6 +252,7 @@ class PlaybackController(
             ipv6Available = hasGlobalIpv6()
         )
         queueIndex = 0
+        manualPreferred = preferred != null
         playQueued()
     }
 
@@ -249,9 +260,11 @@ class PlaybackController(
         pendingTune?.let { handler.removeCallbacks(it) }
         pendingTune = Runnable { pendingTune = null; tune(channel, requestedTime) }.also { handler.postDelayed(it, 150) }
     }
+
     private fun cancelPending() {
         pendingTune?.let { handler.removeCallbacks(it) }; pendingTune = null
         pendingReconnect?.let { handler.removeCallbacks(it) }; pendingReconnect = null
+        cancelRace?.invoke(); cancelRace = null
     }
 
     private fun playQueued() {
@@ -260,14 +273,67 @@ class PlaybackController(
             finishSource()
             player.stop()
             reportStartupSourceIssue(SystemClock.elapsedRealtime(), exhausted = true)
-            callback.onStatus(current, if (current?.sources.isNullOrEmpty()) "此频道暂无已验证线路。可在设置添加自定义源。" else "所有线路均失败。按右键重试或刷新订阅。", true)
+            callback.onStatus(current, if (current?.sources.isNullOrEmpty()) "此频道暂无可用线路。可通过扫码或菜单更新订阅。" else "所有线路均失败。按右键重试或更新订阅。", true)
             return
         }
-        startSource(queue[queueIndex++], resetRecoveryBudget = true)
+
+        val head = queue[queueIndex]
+        val stats = store.snapshot().stats
+        val headStat = stats[sourceId(head.url)]
+        val provenHealthy = headStat != null && headStat.successes > 0 && headStat.error.isEmpty() && headStat.cooldownUntil <= System.currentTimeMillis()
+        if (probing || manualPreferred || provenHealthy || queue.size - queueIndex <= 1) {
+            manualPreferred = false
+            startSource(queue[queueIndex++], resetRecoveryBudget = true)
+            return
+        }
+
+        val ipv6 = hasGlobalIpv6()
+        val batch = SourceRoutes.pickRaceBatch(queue.drop(queueIndex), maxCount = 3, ipv6Available = ipv6)
+        if (batch.size <= 1) {
+            startSource(queue[queueIndex++], resetRecoveryBudget = true)
+            return
+        }
+
+        if (!probing) startupSourceCheck?.attempting()
+        player.stop()
+        val raceToken = UUID.randomUUID().toString()
+        switchId = raceToken
+        callback.onStatus(current, "正在并发择优 · ${batch.size} 条候选线路…")
+
+        cancelRace = network.raceProbe(batch) { winner, failures ->
+            handler.post {
+                if (closed || switchId != raceToken) return@post
+                cancelRace = null
+                failures.forEach { (url, err) ->
+                    store.record(url) { st ->
+                        val nextFailures = st.failures + 1
+                        st.copy(
+                            failures = nextFailures,
+                            lastOutcome = "failed",
+                            error = DiagnosticRedaction.message(err),
+                            checkedAt = System.currentTimeMillis(),
+                            cooldownUntil = System.currentTimeMillis() + PlaybackRecoveryPolicy.cooldownMs(nextFailures)
+                        )
+                    }
+                }
+                val failedUrls = failures.keys
+                if (winner != null) {
+                    val rest = queue.drop(queueIndex).filterNot { it.url == winner.url || it.url in failedUrls }
+                    queue = queue.take(queueIndex) + winner + rest
+                    startSource(queue[queueIndex++], resetRecoveryBudget = true)
+                } else {
+                    val deadUrls = batch.map { it.url }.toSet()
+                    val rest = queue.drop(queueIndex).filterNot { it.url in deadUrls || it.url in failedUrls }
+                    queue = queue.take(queueIndex) + rest
+                    playQueued()
+                }
+            }
+        }
     }
 
     private fun startSource(next: Entry, resetRecoveryBudget: Boolean = true) {
         pendingReconnect?.let { handler.removeCallbacks(it) }; pendingReconnect = null
+        cancelRace?.invoke(); cancelRace = null
         if (resetRecoveryBudget) {
             finishSource()
             liveEdgeResyncs = 0
@@ -280,8 +346,7 @@ class PlaybackController(
         player.stop()
         player.playWhenReady = true
         entry = next
-        attemptNetwork = activeNetworkId()
-        if (!probing) startupSourceCheck?.attempting(SourceRoutes.isHenan(next.url))
+        if (!probing) startupSourceCheck?.attempting()
         firstFrame = false
         lastFormat = null
         lastAudioMime = ""
@@ -322,7 +387,7 @@ class PlaybackController(
                         result.fold({ prepare(next, it) }, {
                             val reachability = PlaybackErrors.isReachabilityFailure(it)
                             val message = if (reachability) PlaybackErrors.describe(it) else it.message ?: "无法读取线路清单"
-                            fail(message, reachability)
+                            fail(message)
                         })
                     }
                 }
@@ -377,28 +442,26 @@ class PlaybackController(
                     }
                 }.also { handler.postDelayed(it, PlaybackRecoveryPolicy.RECONNECT_DELAY_MS) }
             }
-            RecoveryAction.FAIL_AND_COOL -> fail(message, error?.let(PlaybackErrors::isReachabilityFailure) == true)
+            RecoveryAction.FAIL_AND_COOL -> fail(message)
         }
     }
 
-    private fun fail(message: String, reachabilityFailure: Boolean = false) {
+    private fun fail(message: String) {
         val failedEntry = entry ?: return
-        if (!probing && !firstFrame && reachabilityFailure && SourceRoutes.isHenan(failedEntry.url)) {
-            val networkId = activeNetworkId()
-            if (networkId != null && networkId == attemptNetwork) {
-                val mode = RoutingMode.read(context)
-                val before = automaticRouting.effective(networkId, mode)
-                automaticRouting.regionalFailure(networkId, failedEntry.url)
-                val after = automaticRouting.effective(networkId, mode)
-                if (before != after) queue = queue.take(queueIndex) + SourceRoutes.prioritize(queue.drop(queueIndex), after)
-            }
-        }
         Log.w("SwiftTVMetric", "source_failed source=" + sourceId(failedEntry.url) + " error=" + DiagnosticRedaction.message(message))
         finishSource(failed = true)
-        store.record(failedEntry.url) { it.copy(failures = it.failures + 1, lastOutcome = "failed", error = DiagnosticRedaction.message(message), checkedAt = System.currentTimeMillis(),
-            cooldownUntil = System.currentTimeMillis() + 2 * 60 * 1000) }
+        store.record(failedEntry.url) { st ->
+            val nextFailures = st.failures + 1
+            st.copy(
+                failures = nextFailures,
+                lastOutcome = "failed",
+                error = DiagnosticRedaction.message(message),
+                checkedAt = System.currentTimeMillis(),
+                cooldownUntil = System.currentTimeMillis() + PlaybackRecoveryPolicy.cooldownMs(nextFailures)
+            )
+        }
         player.stop()
-        callback.onStatus(current, message + "，正在尝试备用线路…")
+        callback.onStatus(current, message + "，正在切换备用线路…")
         if (probing) nextProbe() else playQueued()
     }
 
@@ -416,20 +479,25 @@ class PlaybackController(
                 if (firstFrame && player.playbackState == Player.STATE_BUFFERING) rebufferUnflushed += delta
                 val position = player.currentPosition
                 if (position != lastPosition) { noProgressAt = now; lastPosition = position }
-                val firstFrameLimitMs = if (lastFormat != null) 12_000L else 8_000L
-                if (!firstFrame && now - sourceStartedAt >= firstFrameLimitMs) {
-                    fail(if (lastFormat != null) "十二秒内未渲染视频首帧" else "八秒内没有视频画面", reachabilityFailure = lastFormat == null)
+                val firstFrameLimitMs = if (lastFormat != null) {
+                    PlaybackRecoveryPolicy.FIRST_FRAME_TIMEOUT_MS
+                } else {
+                    PlaybackRecoveryPolicy.NO_TRACK_TIMEOUT_MS
                 }
-                else if (bufferingAt > 0 && now - bufferingAt >= 8000) recoverOrFail(null, "持续缓冲超过八秒")
-                else if (firstFrame && player.isPlaying && now - noProgressAt >= 8000) recoverOrFail(null, "播放进度停止")
-                else if (probing && firstFrame && now - probeFirstFrameAt >= 12000) {
+                if (!firstFrame && now - sourceStartedAt >= firstFrameLimitMs) {
+                    fail(if (lastFormat != null) "7.5 秒内未渲染视频首帧" else "3.5 秒内未建立视频流")
+                } else if (bufferingAt > 0 && now - bufferingAt >= PlaybackRecoveryPolicy.REBUFFER_TIMEOUT_MS) {
+                    recoverOrFail(null, "持续缓冲超过五秒")
+                } else if (firstFrame && player.isPlaying && now - noProgressAt >= PlaybackRecoveryPolicy.NO_PROGRESS_TIMEOUT_MS) {
+                    recoverOrFail(null, "播放进度停止")
+                } else if (probing && firstFrame && now - probeFirstFrameAt >= 12000) {
                     flush()
                     callback.onProbeProgress(probeIndex + 1, probeItems.size, current?.name.orEmpty() + " · 短时播放完成")
                     nextProbe()
                 }
                 if (now - lastFlush >= 10000) flush()
             }
-            if (!probing && entry != null && player.playWhenReady && player.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
+            if (!probing && current != null && !exhausted && (entry != null || cancelRace != null)) {
                 reportStartupSourceIssue(now)
             }
             handler.postDelayed(this, 500)
@@ -452,6 +520,7 @@ class PlaybackController(
     }
 
     private fun finishSource(failed: Boolean = false) {
+        cancelRace?.invoke(); cancelRace = null
         sniffCall?.cancel(); sniffCall = null
         pendingReconnect?.let { handler.removeCallbacks(it) }; pendingReconnect = null
         flush()
@@ -480,7 +549,8 @@ class PlaybackController(
     }
 
     private fun warmNext() {
-        val channels = BuiltinPolicy.withMissingChannels(store.snapshot().channels(), codecProfile.supports4kHevc50).filter { it.sources.isNotEmpty() }
+        val channels = CatalogSelection.gateHardware(store.snapshot().channels(), codecProfile.supports4kHevc50)
+            .filter { it.sources.isNotEmpty() }
         val index = channels.indexOfFirst { it.id == current?.id }
         if (channels.size < 2 || index < 0) return
         val next = channels[(index + 1) % channels.size]
@@ -526,7 +596,7 @@ class PlaybackController(
         player.volume = 1f
         callback.onProbeFinished()
         if (restore) {
-            BuiltinPolicy.withMissingChannels(store.snapshot().channels(), codecProfile.supports4kHevc50)
+            CatalogSelection.gateHardware(store.snapshot().channels(), codecProfile.supports4kHevc50)
                 .firstOrNull { it.id == beforeProbeId && it.sources.isNotEmpty() }?.let { tune(it) }
         }
     }
@@ -621,11 +691,7 @@ class PlaybackController(
                 val sourceMs = probeFirstFrameAt - sourceStartedAt
                 lastFirstFrameMs = ms
                 val e = entry ?: return
-                if (!probing) {
-                    startupSourceCheck = null
-                    val networkId = activeNetworkId()
-                    if (networkId != null && networkId == attemptNetwork) automaticRouting.rendered(networkId, SourceRoutes.isHenan(e.url))
-                }
+                if (!probing) startupSourceCheck = null
                 store.record(e.url) { s -> s.copy(successes = s.successes + 1,
                     firstFrameMs = if (s.firstFrameMs == 0L) sourceMs else (s.firstFrameMs * 2 + sourceMs) / 3,
                     checkedAt = System.currentTimeMillis(), error = "", cooldownUntil = 0, lastOutcome = "playing",

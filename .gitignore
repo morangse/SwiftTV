@@ -12,11 +12,9 @@ __pycache__/
 *.pyc
 *.zip
 *.apk
-!installer/app/src/main/assets/swifttv-0.3.3.apk
+!installer/app/src/main/assets/swifttv-0.4.0.apk
 *.aab
 *.pfx
 *.pem
 .env
 .env.*
-app/src/main/assets/builtin-reviewed.m3u
-app/src/main/assets/channel-logos/
