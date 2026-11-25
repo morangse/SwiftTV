@@ -10,21 +10,32 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.net.ConnectException
+import java.net.SocketException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
+import java.security.cert.CertificateException
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.GZIPInputStream
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 
 data class Download(val text: String, val etag: String, val lastModified: String, val notModified: Boolean)
 data class ImportDownload(val text: String?, val directStreamMime: String?, val etag: String, val lastModified: String)
+data class ImportErrorInfo(val message: String, val relayEligible: Boolean)
 
-class Network(cacheDir: File?) {
+class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.create() }.getOrNull()) {
     // A live MPEG-TS/FLV body can remain open for hours. Its total duration is not a timeout;
     // readTimeout still bounds a stalled socket, and the player bounds first-frame waits.
     val client = OkHttpClient.Builder().connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS).callTimeout(0, TimeUnit.SECONDS)
+        .apply { if (tlsConfig != null) sslSocketFactory(tlsConfig.sslSocketFactory, tlsConfig.trustManager) }
         .build()
 
     // Bounded catalogue/sniff/prefetch/EPG calls share the connection pool and keep their own cache.
@@ -313,6 +324,49 @@ class Network(cacheDir: File?) {
 
     companion object {
         const val USER_AGENT = "SwiftTV/0.4"
+
+        fun describeImportError(error: Throwable): ImportErrorInfo {
+            val causes = mutableListOf<Throwable>()
+            val seen = Collections.newSetFromMap(IdentityHashMap<Throwable, Boolean>())
+            var cursor: Throwable? = error
+            while (cursor != null && causes.size < 16 && seen.add(cursor)) {
+                causes += cursor
+                cursor = cursor.cause
+            }
+            if (causes.any { it is CertificateException || it is SSLPeerUnverifiedException || it is SSLHandshakeException }) {
+                return ImportErrorInfo(
+                    "电视 HTTPS 证书校验失败（请检查电视系统日期时间是否正确，或改用手机代拉取 / 本地文件上传）",
+                    relayEligible = true
+                )
+            }
+            if (causes.any { it is UnknownHostException }) {
+                return ImportErrorInfo(
+                    "电视无法解析该域名（请检查电视 DNS 或网络连接）",
+                    relayEligible = true
+                )
+            }
+            if (causes.any { it is SocketTimeoutException }) {
+                return ImportErrorInfo(
+                    "电视连接订阅地址超时（服务器响应较慢或网络受限）",
+                    relayEligible = true
+                )
+            }
+            if (causes.any { it is ConnectException || it is SocketException }) {
+                return ImportErrorInfo(
+                    "电视无法连接到订阅服务器（连接被拒绝或重置）",
+                    relayEligible = true
+                )
+            }
+            if (causes.any { it is IOException }) {
+                return ImportErrorInfo(
+                    "电视读取订阅失败：" + DiagnosticRedaction.message(error.message ?: "网络异常"),
+                    relayEligible = true
+                )
+            }
+            val raw = DiagnosticRedaction.message(error.message ?: "导入失败")
+            val relay = raw.startsWith("地址返回 HTTP ") || raw.startsWith("订阅服务器返回 HTTP ")
+            return ImportErrorInfo(raw, relayEligible = relay)
+        }
 
         internal fun logoCandidates(url: String): List<String> {
             val trimmed = url.trim()

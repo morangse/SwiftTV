@@ -225,4 +225,41 @@ class NetworkTest {
             assertEquals(good, picked)
         } finally { network.close(); badServer.shutdown(); goodServer.shutdown() }
     }
+
+    @Test fun bundledRootCasLoadModernPublicAuthorities() {
+        val bundled = TlsTrust.loadBundledCertificates()
+        assertTrue(bundled.size >= 18)
+        val subjects = bundled.joinToString("\n") { it.subjectX500Principal.name }
+        assertTrue(subjects.contains("ISRG Root X1"))
+        assertTrue(subjects.contains("DigiCert Global Root G2"))
+        assertTrue(subjects.contains("GTS Root R1"))
+        assertTrue(subjects.contains("USERTrust RSA Certification Authority"))
+
+        val config = TlsTrust.create(includeSystemDefaults = true)
+        val combinedSubjects = config.trustManager.acceptedIssuers.joinToString("\n") { it.subjectX500Principal.name }
+        assertTrue(combinedSubjects.contains("ISRG Root X1"))
+    }
+
+    @Test fun describeImportErrorClassifiesTlsNetworkAndValidationErrors() {
+        val tls = javax.net.ssl.SSLHandshakeException("Chain validation failed").apply {
+            initCause(java.security.cert.CertPathValidatorException("Trust anchor for certification path not found."))
+        }
+        val tlsInfo = Network.describeImportError(tls)
+        assertTrue(tlsInfo.relayEligible)
+        assertTrue(tlsInfo.message.contains("证书校验失败"))
+        assertFalse(tlsInfo.message.contains("CertPathValidatorException"))
+
+        val dnsInfo = Network.describeImportError(java.net.UnknownHostException("private.example"))
+        assertTrue(dnsInfo.relayEligible)
+        assertTrue(dnsInfo.message.contains("域名"))
+        assertFalse(dnsInfo.message.contains("private.example"))
+
+        val timeoutInfo = Network.describeImportError(java.net.SocketTimeoutException("timeout"))
+        assertTrue(timeoutInfo.relayEligible)
+        assertTrue(timeoutInfo.message.contains("超时"))
+
+        val validationInfo = Network.describeImportError(IllegalArgumentException("不是有效的 M3U 频道表"))
+        assertFalse(validationInfo.relayEligible)
+        assertEquals("不是有效的 M3U 频道表", validationInfo.message)
+    }
 }

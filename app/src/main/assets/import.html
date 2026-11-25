@@ -89,16 +89,38 @@ function switchTab(value){
 function invalidate(){previewId='';el('preview').classList.add('hidden')}
 el('urlTab').onclick=()=>switchTab('url');el('fileTab').onclick=()=>switchTab('file');el('manageTab').onclick=()=>switchTab('manage');
 el('url').oninput=invalidate;el('file').onchange=invalidate;
+function renderPreview(r){
+ previewId=r.previewId;
+ el('channelCount').textContent=r.channelCount;el('sourceCount').textContent=r.sourceCount;
+ el('channels').replaceChildren();r.channels.forEach(function(name){const li=document.createElement('li');li.textContent=name;el('channels').appendChild(li)});
+ el('preview').classList.remove('hidden');
+}
 async function request(method,path,data){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),24000);
  try{
   const opts={method:method,headers:{'X-SwiftTV-Token':token},signal:controller.signal};
   if(data!==undefined){opts.headers['Content-Type']='application/json';opts.body=JSON.stringify(data)}
-  const r=await fetch(path,opts);const body=await r.json();if(!r.ok)throw new Error(body.error||'请求失败');return body;
+  const r=await fetch(path,opts);const body=await r.json();
+  if(!r.ok){const err=new Error(body.error||'请求失败');err.relayEligible=Boolean(body.relayEligible);throw err}
+  return body;
  }catch(e){
   if(e.name==='AbortError')throw new Error('请求超时，请确认电视仍在配对页面后重试');
   if(e instanceof TypeError)throw new Error('无法连接电视，请保持配对页面打开；若二维码已过期，请重新扫码');
   throw e;
+ }finally{clearTimeout(timeout)}
+}
+async function fetchViaPhone(url){
+ const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
+ try{
+  const resp=await fetch(url,{method:'GET',mode:'cors',cache:'no-store',signal:controller.signal});
+  if(!resp.ok)throw new Error('HTTP '+resp.status);
+  const len=Number(resp.headers.get('content-length')||0);
+  if(len>2097152)throw new Error('文件超过 2 MB 上限');
+  const text=await resp.text();
+  if(new Blob([text]).size>2097152)throw new Error('文件超过 2 MB 上限');
+  const trimmed=text.replace(/^\uFEFF/,'').trimStart();
+  if(!trimmed.startsWith('#EXTM3U'))throw new Error('内容不是有效的 M3U 频道表');
+  return text;
  }finally{clearTimeout(timeout)}
 }
 function setBusy(value){busy=value;el('previewButton').disabled=value||!token;el('commitButton').disabled=value||!token}
@@ -141,12 +163,30 @@ el('importForm').onsubmit=async function(event){
  event.preventDefault();if(busy)return;setBusy(true);invalidate();message('正在读取频道信息…',false);
  try{
   const customName=el('subName').value.trim();
-  let data;if(mode==='url'){const url=el('url').value.trim();if(!url)throw new Error('请填写订阅或直播流地址');data={url:url,name:customName}}
-  else{const file=el('file').files[0];if(!file)throw new Error('请选择 M3U 文件');if(file.size>2097152)throw new Error('文件不能超过 2 MB');data={content:await file.text(),name:customName||file.name}}
-  const r=await request('POST','/api/import',data);previewId=r.previewId;
-  el('channelCount').textContent=r.channelCount;el('sourceCount').textContent=r.sourceCount;
-  el('channels').replaceChildren();r.channels.forEach(function(name){const li=document.createElement('li');li.textContent=name;el('channels').appendChild(li)});
-  el('preview').classList.remove('hidden');message(r.skipped?'已跳过 '+r.skipped+' 条无效记录。请确认频道后保存。':'预览就绪。请确认频道后保存。',false)
+  if(mode==='url'){
+   const url=el('url').value.replace(/[\u200B-\u200D\uFEFF]/g,'').trim();
+   el('url').value=url;
+   if(!url)throw new Error('请填写订阅或直播流地址');
+   try{
+    const r=await request('POST','/api/import',{url:url,name:customName});
+    renderPreview(r);
+    message(r.skipped?'已跳过 '+r.skipped+' 条无效记录。请确认频道后保存。':'预览就绪。请确认频道后保存。',false);
+   }catch(err){
+    if(!err.relayEligible)throw err;
+    message('电视直连受限，正尝试通过手机代拉取频道表…',false);
+    let content='';
+    try{content=await fetchViaPhone(url)}
+    catch(_){throw new Error(err.message+'\n\n手机代拉取未成功（目标站点可能不支持跨域访问或网络受限）。可在手机浏览器下载该 .m3u 文件后，切换到「本地 M3U 文件」标签直接上传。')}
+    const r=await request('POST','/api/import',{url:url,content:content,name:customName});
+    renderPreview(r);
+    message(r.skipped?'已通过手机代拉取并跳过 '+r.skipped+' 条无效记录。请确认频道后保存。':'已通过手机代拉取并解析就绪。请确认频道后保存。',false);
+   }
+  }else{
+   const file=el('file').files[0];if(!file)throw new Error('请选择 M3U 文件');if(file.size>2097152)throw new Error('文件不能超过 2 MB');
+   const r=await request('POST','/api/import',{content:await file.text(),name:customName||file.name});
+   renderPreview(r);
+   message(r.skipped?'已跳过 '+r.skipped+' 条无效记录。请确认频道后保存。':'预览就绪。请确认频道后保存。',false);
+  }
  }catch(e){message(e.message||'无法连接电视，请重新扫码',true)}finally{setBusy(false)}
 };
 el('commitButton').onclick=async function(){

@@ -102,7 +102,10 @@ class ImportServer(
                 }
                 send(socket, HttpReply(200, body = answer.toString()))
             } catch (error: Exception) {
-                runCatching { send(socket, HttpReply(400, body = JSONObject().put("error", DiagnosticRedaction.message(error.message ?: "导入失败")).toString())) }
+                val info = Network.describeImportError(error)
+                val reply = JSONObject().put("error", info.message)
+                if (info.relayEligible) reply.put("relayEligible", true)
+                runCatching { send(socket, HttpReply(400, body = reply.toString())) }
             } finally { sockets.remove(socket) }
         }
     }
@@ -130,8 +133,9 @@ class ImportServer(
     private fun send(socket: Socket, reply: HttpReply) {
         val bytes = reply.body.toByteArray(Charsets.UTF_8)
         val status = when (reply.status) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; 404 -> "Not Found"; 410 -> "Gone"; else -> "Error" }
+        val connectSrc = if (diagnostics == null) "connect-src 'self' https: http:" else "connect-src 'self'"
         val header = "HTTP/1.1 " + reply.status + " " + status + "\r\nContent-Type: " + reply.contentType +
-            "\r\nContent-Length: " + bytes.size + "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'\r\n\r\n"
+            "\r\nContent-Length: " + bytes.size + "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; " + connectSrc + "; img-src 'self' data:; frame-ancestors 'none'\r\n\r\n"
         socket.getOutputStream().apply { write(header.toByteArray(Charsets.US_ASCII)); write(bytes); flush() }
     }
     override fun close() {

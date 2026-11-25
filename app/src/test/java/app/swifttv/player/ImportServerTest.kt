@@ -97,4 +97,49 @@ class ImportServerTest {
         server.close()
         assertTrue(runCatching { Socket("127.0.0.1", port).close() }.isFailure)
     }
+
+    @Test fun importConsoleReturnsFriendlyTlsErrorWithRelayEligibleFlagAndAllowsHttpsConnectSrc() {
+        ImportServer(
+            "127.0.0.1",
+            "<!doctype html>SwiftTV",
+            {
+                throw javax.net.ssl.SSLHandshakeException("Chain validation failed").apply {
+                    initCause(java.security.cert.CertPathValidatorException("Trust anchor for certification path not found."))
+                }
+            },
+            { JSONObject().put("saved", true) }
+        ).use { server ->
+            val client = OkHttpClient()
+            client.newCall(Request.Builder().url(server.address).build()).execute().use { resp ->
+                assertEquals(200, resp.code)
+                val csp = resp.header("Content-Security-Policy").orEmpty()
+                assertTrue(csp.contains("connect-src 'self' https: http:"))
+            }
+            val body = """{"url":"https://example.com/list.m3u"}""".toRequestBody("application/json".toMediaType())
+            client.newCall(
+                Request.Builder().url(server.address + "/api/import")
+                    .header("X-SwiftTV-Token", server.token)
+                    .post(body)
+                    .build()
+            ).execute().use { resp ->
+                assertEquals(400, resp.code)
+                val json = JSONObject(resp.body!!.string())
+                assertTrue(json.getBoolean("relayEligible"))
+                assertTrue(json.getString("error").contains("证书校验失败"))
+                assertFalse(json.getString("error").contains("CertPathValidatorException"))
+            }
+            client.dispatcher.executorService.shutdown(); client.connectionPool.evictAll()
+        }
+
+        ImportServer("127.0.0.1", "Export", { JSONObject() }, { JSONObject() }, """{"redacted":true}""").use { server ->
+            val client = OkHttpClient()
+            client.newCall(Request.Builder().url(server.address).build()).execute().use { resp ->
+                assertEquals(200, resp.code)
+                val csp = resp.header("Content-Security-Policy").orEmpty()
+                assertTrue(csp.contains("connect-src 'self';"))
+                assertFalse(csp.contains("https: http:"))
+            }
+            client.dispatcher.executorService.shutdown(); client.connectionPool.evictAll()
+        }
+    }
 }

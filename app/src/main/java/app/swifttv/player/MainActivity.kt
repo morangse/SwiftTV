@@ -732,7 +732,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                     try {
                         val result = createPreview(JSONObject().put("url", url))
                         postUi { confirmPreview(result, tryOnSave = true) }
-                    } catch (e: Exception) { postUi { toast(e.message ?: "读取失败") } }
+                    } catch (e: Exception) { postUi { toast(Network.describeImportError(e).message) } }
                 }
                 true
             }
@@ -763,7 +763,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 val finalPreview = previewData.copy(subscription = resolvedSub)
                 postUi { confirmPreview(finalPreview, tryOnSave = true, pendingEpgUrl = cfg.epgUrl) }
             } catch (e: Exception) {
-                postUi { toast("读取手机推送失败：" + DiagnosticRedaction.message(e.message ?: "请检查网络")) }
+                postUi { toast("读取手机推送失败：" + Network.describeImportError(e).message) }
             }
         }
     }
@@ -796,12 +796,14 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun createPreview(data: JSONObject): ImportPreview {
-        val url = data.optString("url").trim()
+        val url = data.optString("url").trim().replace(Regex("[\\u200B-\\u200D\\uFEFF]"), "")
+        val inlineContent = data.optString("content")
         val explicitName = data.optString("name").trim().take(80)
-        val download = if (url.isNotEmpty()) network.downloadForImport(url) else null
+        if (url.isNotEmpty()) httpUri(url)
+        val download = if (inlineContent.isEmpty() && url.isNotEmpty()) network.downloadForImport(url) else null
         val parsed = when {
             download?.directStreamMime != null -> M3uParser.singleStreamPlaylist(url, explicitName)
-            else -> M3uParser.parseImport(download?.text ?: data.optString("content"), url, explicitName)
+            else -> M3uParser.parseImport(download?.text ?: inlineContent, url, explicitName)
         }
         val name = when {
             explicitName.isNotEmpty() -> explicitName
