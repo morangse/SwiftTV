@@ -58,7 +58,8 @@
 ## 社区公开源整理参考
 
 以下为 GitHub 上广泛传播的开源公开整理项目，仅作为社区技术资料索引方便用户自行检索、甄别并按需导入，项目与 SwiftTV 无任何隶属关系，可用性、合法性及线路时效请用户自行确认并承担责任：
-
+（推荐）个人整理收集测试网站，可自行导入测试
+https://morangse.github.io/iptvtest/
 | GitHub 项目 | 常见特点 / 格式说明 | 参考订阅地址格式（如项目官方页提供） |
 | :--- | :--- | :--- |
 | [fanmingming/live](https://github.com/fanmingming/live) | 公开直播源汇总项目，IPv6 资源丰富，附带常见台标与 EPG 参考 | 查看项目仓库 README 获取最新地址 |
