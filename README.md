@@ -7,6 +7,8 @@
 <p align="center"><strong>纯粹轻量的 Android TV 本地 / 局域网直播播放器（无内置片源）</strong></p>
 
 <p align="center">
+  <a href="https://morangse.github.io/SwiftTV/"><strong>官网首页</strong></a>
+  &nbsp;·&nbsp;
   <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SwiftTV-0.4.2.apk"><strong>下载 SwiftTV 0.4.2</strong></a>
   &nbsp;·&nbsp;
   <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.2">v0.4.2 发行说明</a>
