@@ -29,10 +29,11 @@ import java.util.Locale
 @SuppressLint("ViewConstructor")
 class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : FrostedContainer(context, blurEngine, cornerRadiusDp = 22f, veilAlpha = 64) {
     private fun dp(n: Int) = TvStyle.dp(context, n)
+    private fun sp(base: Float) = TvStyle.sp(context, base)
     private val clockFormat = SimpleDateFormat("HH:mm", Locale.ROOT)
 
     private val numberView = TextView(context).apply {
-        textSize = 20f
+        textSize = sp(20f)
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -45,7 +46,7 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         setBackgroundColor(Color.argb(30, 255, 255, 255))
     }
     private val titleView = TextView(context).apply {
-        textSize = 18.5f
+        textSize = sp(18.5f)
         setTextColor(TvStyle.ink)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
@@ -53,7 +54,7 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
     }
     private val specBadge = TextView(context).apply {
-        textSize = 11f
+        textSize = sp(11f)
         setTextColor(TvStyle.muted)
         maxLines = 1
         includeFontPadding = false
@@ -63,13 +64,13 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         visibility = GONE
     }
     private val clockView = TextView(context).apply {
-        textSize = 12.5f
+        textSize = sp(12.5f)
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
         fontFeatureSettings = "tnum"
     }
     private val messageView = TextView(context).apply {
-        textSize = 13f
+        textSize = sp(13f)
         setTextColor(TvStyle.muted)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
@@ -96,7 +97,7 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(20), dp(14), dp(22), dp(14))
-        minimumWidth = dp(380)
+        minimumWidth = dp((380f * (1f + 0.32f * (TvStyle.fontScale(context) - 1f).coerceAtLeast(0f))).toInt())
         elevation = dp(8).toFloat()
         visibility = GONE
 
@@ -199,15 +200,16 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
 @SuppressLint("ViewConstructor")
 class NumberPadOsdView(context: Context, blurEngine: CinemaBlurEngine? = null) : FrostedContainer(context, blurEngine, cornerRadiusDp = 18f, veilAlpha = 68) {
     private fun dp(n: Int) = TvStyle.dp(context, n)
+    private fun sp(base: Float) = TvStyle.sp(context, base)
     private val digitsView = TextView(context).apply {
-        textSize = 26f
+        textSize = sp(26f)
         setTextColor(TvStyle.ink)
         includeFontPadding = false
         fontFeatureSettings = "tnum"
         typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
     }
     private val nameView = TextView(context).apply {
-        textSize = 14.5f
+        textSize = sp(14.5f)
         setTextColor(TvStyle.muted)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
@@ -258,7 +260,7 @@ class CinemaToastBanner(context: Context, blurEngine: CinemaBlurEngine? = null) 
         }
     }
     private val label = TextView(context).apply {
-        textSize = 13.5f
+        textSize = TvStyle.sp(context, 13.5f)
         setTextColor(TvStyle.ink)
         maxLines = 2
         ellipsize = TextUtils.TruncateAt.END

@@ -7,9 +7,9 @@
 <p align="center"><strong>纯粹轻量的 Android TV 本地 / 局域网直播播放器（无内置片源）</strong></p>
 
 <p align="center">
-  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.0/SwiftTV-0.4.0.apk"><strong>下载 SwiftTV 0.4.0</strong></a>
+  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.1/SwiftTV-0.4.1.apk"><strong>下载 SwiftTV 0.4.1</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.0">v0.4.0 发行说明</a>
+  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.1">v0.4.1 发行说明</a>
   &nbsp;·&nbsp;
   <a href="#安装与导入">快速上手</a>
   &nbsp;·&nbsp;
@@ -46,7 +46,7 @@
 
 ## 安装与导入
 
-1. **安装到电视**：下载 [SwiftTV-0.4.0.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.0/SwiftTV-0.4.0.apk)（校验见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.0/SHA256SUMS.txt)）用 U 盘安装，或在手机安装同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.0.apk`)** 通过局域网无线推送安装。
+1. **安装到电视**：下载 [SwiftTV-0.4.1.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.1/SwiftTV-0.4.1.apk)（校验见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.1/SHA256SUMS.txt)）用 U 盘安装，或在手机安装同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.1.apk`)** 通过局域网无线推送安装。
 2. **首次启动配对导源**：首次打开 SwiftTV 且尚未导入频道时，界面会直接显示**手机配对二维码**与左侧快速入口（`手动输入地址` / `本地文件` / `控制中心`）。
 3. **手机推送直播源（推荐）**：
    - **方式 A（手机浏览器扫码）**：手机与电视在同一 Wi‑Fi 下扫一扫屏幕二维码，可输入远程 `.m3u` / 单频道 `.m3u8` 链接、或直接上传手机本地 `.m3u/.m3u8` 文件并点击发送，电视端按 OK 确认预览即可播放。
@@ -72,11 +72,11 @@
 
 ## 手机端局域网安装与推源助手
 
-仓库内的 [`installer/`](installer/) 是一个独立的 Android 手机伴侣应用（`SwiftTV 安装助手 1.1.0`），用于在无 U 盘环境下通过局域网 ADB 安装 SwiftTV 并推送直播源：
+仓库内的 [`installer/`](installer/) 是一个独立的 Android 手机伴侣应用（`SwiftTV 安装助手 1.1.1`），用于在无 U 盘环境下通过局域网 ADB 安装 SwiftTV 并推送直播源：
 
 - 自动扫描同网段 `5555` 端口，并通过 mDNS 发现 Android 11+ 无线调试设备
 - 支持手动 IP、授权弹窗自动重试、6 位配对码（SPAKE2 + Conscrypt），以及签名冲突卸载重装
-- 内置 `SwiftTV 0.4.0` 安装包，也支持在手机上选择其他本地 APK
+- 内置 `SwiftTV 0.4.1` 安装包，也支持在手机上选择其他本地 APK
 - **1.1.0 新增推源能力**：在手机上粘贴 M3U 订阅 / 单频道 `.m3u8` 链接（可选列表名与 EPG）或挑选本地 `.m3u/.m3u8` 文件（内置随机一次性令牌 LAN 短暂托管），一键唤起电视端确认导入
 
 构建方式（独立 Gradle 工程）：
@@ -92,7 +92,7 @@ cd installer
 
 | 当前界面 | 操作 | 效果 |
 | :--- | :--- | :--- |
-| 全屏播放 | <kbd>↑</kbd> / <kbd>↓</kbd> 或频道加减键 | 换台 |
+| 全屏播放 | <kbd>↑</kbd> / <kbd>↓</kbd> 或频道加减键 | 换台（默认 <kbd>↓</kbd> 下一个、<kbd>↑</kbd> 上一个，可在控制中心反转；支持 4 挡长辈大字） |
 | 全屏播放 | <kbd>OK</kbd>，或点按画面 | 打开频道画廊 |
 | 全屏播放 | <kbd>→</kbd> 或菜单键 | 打开线路与收藏 |
 | 全屏播放 | 数字键 | 按画廊中的频道序号换台 |

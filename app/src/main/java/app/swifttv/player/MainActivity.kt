@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private var closingOverlay = false
     private var consumeOpeningConfirm = false
     private var channelCursor = -1
+    private var lastZapAtMs = 0L
     private var refreshing = false
     private var isolatedTestMode = false
     private var startupRejected = false
@@ -213,16 +214,17 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             val btn = Button(this@MainActivity).apply {
                 id = View.generateViewId()
                 text = "手机扫码导入"
-                textSize = 15f
+                textSize = TvStyle.sp(this@MainActivity, 15f)
                 isAllCaps = false
                 setTextColor(TvStyle.inkOnPorcelain)
                 typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
                 background = TvStyle.porcelainSurface(this@MainActivity, 999f)
+                minHeight = dp(46); minimumHeight = dp(46)
                 setPadding(dp(28), dp(12), dp(28), dp(12))
                 stateListAnimator = null
                 setOnClickListener { showPairing(onboarding = true) }
             }
-            addView(btn, LinearLayout.LayoutParams(-2, dp(46)).apply { topMargin = dp(28) })
+            addView(btn, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(28) })
         }
         addView(card, FrameLayout.LayoutParams(dp(480), -2, Gravity.CENTER))
     }
@@ -315,7 +317,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun text(value: String, size: Int, color: Int = ink, bold: Boolean = false) = TextView(this).apply {
-        text = value; textSize = size.toFloat(); setTextColor(color)
+        text = value; textSize = TvStyle.sp(this@MainActivity, size.toFloat()); setTextColor(color)
         if (bold) typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         includeFontPadding = true
     }
@@ -439,7 +441,11 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             }
             override fun more(channel: Channel?) { showOptions(channel ?: controller?.current) }
             override fun settings() { showSettings() }
-            override fun groupChanged(group: String) { this@MainActivity.group = group }
+            override fun groupChanged(group: String) {
+                this@MainActivity.group = group
+                channelCursor = -1
+                lastZapAtMs = 0L
+            }
         }, group, scheduleFor = { id -> epg.scheduleFor(id)?.current }).also { ribbon = it }
         (view.parent as? ViewGroup)?.removeView(view)
         overlay.addView(view, FrameLayout.LayoutParams(-1, -1))
@@ -530,7 +536,11 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
     private fun routingLabel(): String = RoutingMode.read(this).title
 
-    private fun showSettings() {
+    private fun switchDirectionLabel(): String = ChannelSwitchDirection.read(this).title
+
+    private fun fontScaleLabel(): String = TvStyle.fontScaleMode(this).title
+
+    private fun showSettings(focusRowIndex: Int = 0) {
         val panel = sheet("", "控制中心", "SwiftTV ${BuildConfig.VERSION_NAME} · 纯本地播放器", "settings")
 
         panel.addSectionHeader("播放与画面体验")
@@ -538,6 +548,18 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             RoutingMode.save(this, RoutingMode.read(this).next())
             availableChannels().firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it) }
             routingLabel()
+        }
+        panel.addSegmentRow("上下键换台方向", "默认 ↓ 切下一个、↑ 切上一个；频道加减键固定不变", switchDirectionLabel()) {
+            ChannelSwitchDirection.save(this, ChannelSwitchDirection.read(this).next())
+            switchDirectionLabel()
+        }
+        panel.addSegmentRow("界面字体大小", "支持 4 挡长辈大字调节，即时生效不中断播放", fontScaleLabel()) {
+            val nextFont = TvStyle.fontScaleMode(this).next()
+            TvStyle.setFontScaleMode(this, nextFont)
+            rebuildChromeForFontScale()
+            restoringMenu = true
+            try { showSettings(focusRowIndex = 2) } finally { restoringMenu = false }
+            nextFont.title
         }
         panel.addSegmentRow("视觉与毛玻璃效果", "实时光学视频动态模糊与丝滑弹簧动效", if (TvStyle.lightweight(this)) "极速纯色" else "光学毛玻璃") {
             val nextLight = !TvStyle.lightweight(this)
@@ -584,7 +606,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             val license = assets.open("licenses/Apache-2.0.txt").bufferedReader().use { it.readText() }
             showModal("Apache-2.0", license, primaryLabel = "关闭", secondaryLabel = null) { true }
         }
-        panel.focusFirstRow()
+        panel.focusRow(focusRowIndex)
     }
 
     private fun showStartupSettings() {
@@ -837,12 +859,13 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
         fun makeActionPill(label: String, primary: Boolean = false, onClick: () -> Unit) = Button(this).apply {
             id = View.generateViewId()
-            text = label
-            textSize = 14f
+            this.text = label
+            textSize = TvStyle.sp(this@MainActivity, 14f)
             isAllCaps = false
             setTextColor(if (primary) TvStyle.inkOnPorcelain else ink)
             typeface = Typeface.create("sans-serif-medium", if (primary) Typeface.BOLD else Typeface.NORMAL)
             background = if (primary) TvStyle.porcelainSurface(this@MainActivity, 999f) else TvStyle.pillButton(this@MainActivity)
+            minHeight = dp(40); minimumHeight = dp(40)
             setPadding(dp(20), dp(8), dp(20), dp(8))
             stateListAnimator = null
             if (!primary) {
@@ -864,13 +887,13 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 catch (_: Exception) { toast("这台电视未提供文件选择器，请使用手机扫码或安装助手导入") }
             }
             val settingsBtn = makeActionPill("控制中心") { showSettings() }
-            actionRow.addView(manualBtn, LinearLayout.LayoutParams(-2, dp(40)))
-            actionRow.addView(fileBtn, LinearLayout.LayoutParams(-2, dp(40)).apply { leftMargin = dp(10) })
-            actionRow.addView(settingsBtn, LinearLayout.LayoutParams(-2, dp(40)).apply { leftMargin = dp(10) })
+            actionRow.addView(manualBtn, LinearLayout.LayoutParams(-2, -2))
+            actionRow.addView(fileBtn, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(10) })
+            actionRow.addView(settingsBtn, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(10) })
             primaryFocusView = manualBtn
         } else {
             val close = makeActionPill("返回") { backThroughMenus() }
-            actionRow.addView(close, LinearLayout.LayoutParams(-2, dp(40)))
+            actionRow.addView(close, LinearLayout.LayoutParams(-2, -2))
             primaryFocusView = close
         }
         copy.addView(actionRow, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(24) })
@@ -983,7 +1006,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                     right.addView(makeActionPill("刷新二维码") {
                         restoringMenu = true
                         try { showPairing(export = export, onboarding = onboarding) } finally { restoringMenu = false }
-                    }, LinearLayout.LayoutParams(-2, dp(38)).apply { topMargin = dp(12) })
+                    }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(12) })
                 }
             }.also { handler.postDelayed(it, 5 * 60 * 1000) }
         } catch (e: Exception) { right.addView(text("无法启动配对：" + e.message, 14, muted)) }
@@ -1174,6 +1197,51 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         hud.bind(channel, numStr, message, spec, schedule, artwork)
     }
 
+    private fun rebuildChromeForFontScale() {
+        ribbon?.cancelMotion()
+        ribbon = null
+
+        val landingWasVisible = landing.isVisible
+        val landingIdx = root.indexOfChild(landing)
+        if (landingIdx >= 0) {
+            root.removeViewAt(landingIdx)
+            landing = buildLandingView().apply { visibility = if (landingWasVisible) View.VISIBLE else View.GONE }
+            root.addView(landing, landingIdx, FrameLayout.LayoutParams(-1, -1))
+        }
+
+        val hudWasVisible = hud.isVisible
+        val hudIdx = root.indexOfChild(hud)
+        if (hudIdx >= 0) {
+            root.removeViewAt(hudIdx)
+            hud = LiveHudView(this, blurEngine)
+            root.addView(hud, hudIdx, FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM or Gravity.START).apply {
+                leftMargin = dp(38); bottomMargin = dp(30); rightMargin = dp(38)
+            })
+            val cur = controller?.current
+            if (cur != null) renderHud(cur, lastStatusMessage, controller?.streamSpec ?: StreamSpec())
+            if (hudWasVisible) hud.visibility = View.VISIBLE
+        }
+
+        val osdIdx = root.indexOfChild(numberOsd)
+        if (osdIdx >= 0) {
+            root.removeViewAt(osdIdx)
+            numberOsd = NumberPadOsdView(this, blurEngine)
+            root.addView(numberOsd, osdIdx, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
+                topMargin = dp(30); rightMargin = dp(38)
+            })
+        }
+
+        val bannerIdx = root.indexOfChild(toastBanner)
+        if (bannerIdx >= 0) {
+            root.removeViewAt(bannerIdx)
+            toastBanner = CinemaToastBanner(this, blurEngine)
+            root.addView(toastBanner, bannerIdx, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                topMargin = dp(24); leftMargin = dp(40); rightMargin = dp(40)
+            })
+        }
+        blurEngine.syncState()
+    }
+
     private fun syncChannelCursor(channelId: String) {
         val zappable = zappableChannels()
         val idx = zappable.indexOfFirst { it.id == channelId }
@@ -1284,16 +1352,32 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             }
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> {
                 cancelNumberInput()
+                val delta = ChannelSwitchDirection.read(this).deltaForKey(keyCode) ?: return true
                 val channels = zappableChannels()
-                if (channels.isEmpty()) { showSettings(); return true }
-                if (channelCursor !in channels.indices) channelCursor = channels.indexOfFirst { it.id == controller?.current?.id }.coerceAtLeast(0)
-                val increment = if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_CHANNEL_UP) 1 else -1
-                channelCursor = (channelCursor + increment + channels.size) % channels.size
+                if (channels.isEmpty()) { showPairing(onboarding = true); return true }
+                if (channels.size == 1) {
+                    channelCursor = 0
+                    renderHud(channels[0], "当前仅 1 个频道", StreamSpec())
+                    hud.showAnimated()
+                    handler.removeCallbacks(hideHud)
+                    handler.postDelayed(hideHud, 2500)
+                    return true
+                }
+                val now = SystemClock.elapsedRealtime()
+                val playingIdx = channels.indexOfFirst { it.id == controller?.current?.id }.coerceAtLeast(0)
+                channelCursor = ChannelSwitchDirection.stepCursor(
+                    currentCursor = channelCursor,
+                    playingIndex = playingIdx,
+                    size = channels.size,
+                    delta = delta,
+                    rapidZapping = (now - lastZapAtMs) <= 1_200L
+                )
+                lastZapAtMs = now
                 val target = channels[channelCursor]
                 renderHud(target, "即将切换…", StreamSpec())
                 hud.showAnimated()
                 handler.removeCallbacks(hideHud)
-                controller?.tuneDebounced(target, SystemClock.elapsedRealtime())
+                controller?.tuneDebounced(target, now)
                 return true
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { showChannels(); return true }

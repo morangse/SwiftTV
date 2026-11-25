@@ -129,20 +129,21 @@ class CinemaSheetView(
 ) : FrostedContainer(context, blurEngine, cornerRadiusDp = 24f, veilAlpha = 74), ViewportSizedPanel {
 
     private fun dp(n: Int) = TvStyle.dp(context, n)
+    private fun sp(base: Float) = TvStyle.sp(context, base)
     private var lastViewportW = -1
     private var lastViewportH = -1
     private var lastFontScale = -1f
 
     private val eyebrowView = TextView(context).apply {
         text = eyebrowText
-        textSize = 11.5f
+        textSize = sp(11.5f)
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
         visibility = if (eyebrowText.isBlank()) GONE else VISIBLE
     }
     private val titleView = TextView(context).apply {
         text = titleText
-        textSize = 21f
+        textSize = sp(21f)
         setTextColor(TvStyle.ink)
         maxLines = 2
         ellipsize = TextUtils.TruncateAt.END
@@ -152,7 +153,7 @@ class CinemaSheetView(
     }
     val subtitleView = TextView(context).apply {
         text = subtitleText
-        textSize = 12.5f
+        textSize = sp(12.5f)
         setTextColor(TvStyle.muted)
         includeFontPadding = false
         setPadding(0, dp(4), 0, 0)
@@ -185,7 +186,7 @@ class CinemaSheetView(
     private val backPill = Button(context).apply {
         id = View.generateViewId()
         text = "返回"
-        textSize = 13f
+        textSize = sp(13f)
         isAllCaps = false
         setTextColor(TvStyle.ink)
         gravity = Gravity.CENTER
@@ -205,7 +206,7 @@ class CinemaSheetView(
         setPadding(dp(4), dp(10), dp(4), 0)
         addView(TextView(context).apply {
             text = context.getString(R.string.subpanel_footer_hint)
-            textSize = 11.5f
+            textSize = sp(11.5f)
             setTextColor(TvStyle.subtle)
             includeFontPadding = false
         }, LayoutParams(0, -2, 1f))
@@ -229,7 +230,7 @@ class CinemaSheetView(
     fun addSectionHeader(label: String) {
         rows.addView(TextView(context).apply {
             text = label
-            textSize = 11.5f
+            textSize = sp(11.5f)
             setTextColor(TvStyle.subtle)
             includeFontPadding = false
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
@@ -239,7 +240,7 @@ class CinemaSheetView(
 
     fun addInfoBlock(text: String, color: Int = TvStyle.muted): TextView = TextView(context).apply {
         this.text = text
-        textSize = 13.5f
+        textSize = sp(13.5f)
         setTextColor(color)
         setLineSpacing(dp(4).toFloat(), 1f)
         setPadding(dp(8), dp(2), dp(8), dp(10))
@@ -265,7 +266,7 @@ class CinemaSheetView(
     fun addSegmentRow(title: String, subtitle: String, initialValue: String, onCycle: () -> String): View {
         val pill = TextView(context).apply {
             text = "‹  $initialValue  ›"
-            textSize = 12.5f
+            textSize = sp(12.5f)
             setTextColor(TvStyle.ink)
             includeFontPadding = false
             background = TvStyle.badge(context, onPorcelain = false)
@@ -313,7 +314,7 @@ class CinemaSheetView(
         }
         val accText = TextView(context).apply {
             text = accessory
-            textSize = 12.5f
+            textSize = sp(12.5f)
             setTextColor(TvStyle.muted)
             includeFontPadding = false
             visibility = if (accessory.isEmpty()) GONE else VISIBLE
@@ -347,14 +348,14 @@ class CinemaSheetView(
     ): View {
         val titleTv = TextView(context).apply {
             text = title
-            textSize = 14.5f
+            textSize = sp(14.5f)
             setTextColor(TvStyle.ink)
             includeFontPadding = false
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
         val subTv = TextView(context).apply {
             text = subtitle
-            textSize = 12f
+            textSize = sp(12f)
             setTextColor(TvStyle.muted)
             includeFontPadding = false
             setPadding(0, dp(2), 0, 0)
@@ -397,22 +398,34 @@ class CinemaSheetView(
         }
     }
 
-    fun focusFirstRow() {
+    fun focusFirstRow() = focusRow(0)
+
+    fun focusRow(index: Int) {
         post {
+            var count = 0
+            var firstFocusable: View? = null
             for (i in 0 until rows.childCount) {
                 val child = rows.getChildAt(i)
                 if (child.isFocusable && child.isShown) {
-                    child.requestFocus()
-                    return@post
+                    if (firstFocusable == null) firstFocusable = child
+                    if (count == index) {
+                        child.requestFocus()
+                        return@post
+                    }
+                    count++
                 }
             }
-            if (onBackClick != null) backPill.requestFocus()
+            if (firstFocusable != null) {
+                firstFocusable.requestFocus()
+            } else if (onBackClick != null) {
+                backPill.requestFocus()
+            }
         }
     }
 
     override fun fitToViewport(widthPx: Int, heightPx: Int) {
         if (widthPx <= 0 || heightPx <= 0) return
-        val fontScale = resources.configuration.fontScale
+        val fontScale = TvStyle.fontScale(context)
         if (widthPx == lastViewportW && heightPx == lastViewportH && fontScale == lastFontScale && layoutParams != null) return
         lastViewportW = widthPx; lastViewportH = heightPx; lastFontScale = fontScale
         val density = resources.displayMetrics.density
@@ -421,10 +434,14 @@ class CinemaSheetView(
         val edgeDp = (min(vwDp, vhDp) * 0.04f).roundToInt().coerceIn(12, 32)
         val availW = (vwDp - edgeDp * 2).coerceAtLeast(1)
         val availH = (vhDp - edgeDp * 2).coerceAtLeast(1)
+        val extraScale = (fontScale - 1f).coerceIn(0f, 1f)
 
-        val desiredW = if (anchoredRight) min(388, (vwDp * 0.35f).roundToInt().coerceAtLeast(320))
-            else min(540, (vwDp * 0.52f).roundToInt().coerceAtLeast(360))
-        val desiredH = min(580, (vhDp * 0.84f).roundToInt())
+        val desiredW = if (anchoredRight) {
+            min((388 + 95 * extraScale).roundToInt(), (vwDp * (0.35f + 0.09f * extraScale)).roundToInt().coerceAtLeast(320))
+        } else {
+            min((540 + 130 * extraScale).roundToInt(), (vwDp * (0.52f + 0.14f * extraScale)).roundToInt().coerceAtLeast(360))
+        }
+        val desiredH = min((580 + 60 * extraScale).roundToInt(), (vhDp * (0.84f + 0.04f * extraScale)).roundToInt())
 
         val targetW = dp(desiredW.coerceIn(1, availW))
         val targetH = dp(desiredH.coerceIn(1, availH))
@@ -470,6 +487,7 @@ class CinemaModalDialog(
 ) : FrameLayout(context) {
 
     private fun dp(n: Int) = TvStyle.dp(context, n)
+    private fun sp(base: Float) = TvStyle.sp(context, base)
     private var inputField: EditText? = null
 
     private val card = FrostedContainer(context, blurEngine, cornerRadiusDp = 24f, veilAlpha = 82).apply {
@@ -485,7 +503,7 @@ class CinemaModalDialog(
 
         card.addView(TextView(context).apply {
             text = title
-            textSize = 20f
+            textSize = sp(20f)
             setTextColor(TvStyle.ink)
             typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
         })
@@ -495,7 +513,7 @@ class CinemaModalDialog(
                 isVerticalScrollBarEnabled = false
                 addView(TextView(context).apply {
                     text = message
-                    textSize = 14f
+                    textSize = sp(14f)
                     setTextColor(TvStyle.muted)
                     setLineSpacing(dp(4).toFloat(), 1f)
                 })
@@ -511,7 +529,7 @@ class CinemaModalDialog(
                 hint = inputHint
                 setHintTextColor(TvStyle.subtle)
                 setTextColor(TvStyle.ink)
-                textSize = 14.5f
+                textSize = sp(14.5f)
                 inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
                 setSingleLine()
                 setPadding(dp(14), dp(12), dp(14), dp(12))
@@ -537,11 +555,11 @@ class CinemaModalDialog(
 
         if (extraLabel != null && onExtra != null) {
             val extraBtn = modalButton(extraLabel, primary = false) { onExtra() }
-            btnRow.addView(extraBtn, LinearLayout.LayoutParams(-2, dp(40)).apply { rightMargin = dp(8) })
+            btnRow.addView(extraBtn, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(8) })
         }
         val secBtn = if (secondaryLabel != null) {
             modalButton(secondaryLabel, primary = false) { onSecondary() }.also {
-                btnRow.addView(it, LinearLayout.LayoutParams(-2, dp(40)).apply { rightMargin = dp(8) })
+                btnRow.addView(it, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(8) })
             }
         } else null
 
@@ -549,10 +567,11 @@ class CinemaModalDialog(
             val value = inputField?.text?.toString().orEmpty()
             onPrimary(value)
         }
-        btnRow.addView(priBtn, LinearLayout.LayoutParams(-2, dp(40)))
+        btnRow.addView(priBtn, LinearLayout.LayoutParams(-2, -2))
         card.addView(btnRow, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(22) })
 
-        val cardW = min(dp(460), (resources.displayMetrics.widthPixels * 0.82f).toInt())
+        val extraScale = (TvStyle.fontScale(context) - 1f).coerceIn(0f, 1f)
+        val cardW = min(dp((460 + 110 * extraScale).roundToInt()), (resources.displayMetrics.widthPixels * 0.88f).toInt())
         val maxH = (resources.displayMetrics.heightPixels * 0.82f).toInt()
         addView(card, LayoutParams(cardW, -2, Gravity.CENTER).apply {
             topMargin = dp(24); bottomMargin = dp(24)
@@ -574,11 +593,12 @@ class CinemaModalDialog(
     private fun modalButton(label: String, primary: Boolean, action: () -> Unit) = Button(context).apply {
         id = View.generateViewId()
         text = label
-        textSize = 14f
+        textSize = sp(14f)
         isAllCaps = false
         gravity = Gravity.CENTER
         includeFontPadding = false
         minWidth = dp(96); minimumWidth = dp(96)
+        minHeight = dp(40); minimumHeight = dp(40)
         setPadding(dp(18), dp(8), dp(18), dp(8))
         val defaultTextColor = if (primary) TvStyle.inkOnPorcelain else TvStyle.ink
         setTextColor(defaultTextColor)

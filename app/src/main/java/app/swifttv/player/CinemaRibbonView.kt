@@ -55,6 +55,7 @@ class CinemaRibbonView(
     }
 
     private fun dp(n: Int) = TvStyle.dp(context, n)
+    private fun sp(base: Float) = TvStyle.sp(context, base)
     private val selection = SidebarSelection(initialGroup)
     private var rows: List<Channel> = emptyList()
     private var playbackId: String? = null
@@ -103,7 +104,7 @@ class CinemaRibbonView(
     }
 
     private val positionReadout = TextView(context).apply {
-        textSize = 12.5f
+        textSize = sp(12.5f)
         setTextColor(TvStyle.muted)
         includeFontPadding = false
         fontFeatureSettings = "tnum"
@@ -144,7 +145,7 @@ class CinemaRibbonView(
         addView(TextView(context).apply {
             id = android.R.id.text1
             text = "还没有收藏频道 · 在任意频道按菜单键即可加入收藏"
-            textSize = 14.5f
+            textSize = sp(14.5f)
             setTextColor(TvStyle.muted)
             gravity = Gravity.CENTER
         })
@@ -200,9 +201,11 @@ class CinemaRibbonView(
                 animatePillScale(v, focused)
             }
             pill.setOnKeyListener { _, key, event ->
-                if (event.action == KeyEvent.ACTION_DOWN && key == KeyEvent.KEYCODE_DPAD_DOWN) {
-                    focusSelectedCard(); true
-                } else false
+                if (event.action != KeyEvent.ACTION_DOWN) false else when (key) {
+                    KeyEvent.KEYCODE_DPAD_DOWN -> { focusSelectedCard(); true }
+                    KeyEvent.KEYCODE_DPAD_UP -> true
+                    else -> false
+                }
             }
         }
         morePill.nextFocusRightId = settingsPill.id
@@ -229,7 +232,7 @@ class CinemaRibbonView(
     private fun actionPill(text: String, onClick: () -> Unit) = Button(context).apply {
         id = View.generateViewId()
         this.text = text
-        textSize = 13.5f
+        textSize = sp(13.5f)
         isAllCaps = false
         setTextColor(TvStyle.ink)
         gravity = Gravity.CENTER
@@ -278,7 +281,7 @@ class CinemaRibbonView(
             val btn = Button(context).apply {
                 id = View.generateViewId()
                 text = name
-                textSize = 13.5f
+                textSize = sp(13.5f)
                 isAllCaps = false
                 gravity = Gravity.CENTER
                 includeFontPadding = false
@@ -314,7 +317,7 @@ class CinemaRibbonView(
                 }
             }
             tabs[name] = btn
-            tabStrip.addView(btn, LinearLayout.LayoutParams(-2, dp(32)).apply { rightMargin = dp(2) })
+            tabStrip.addView(btn, LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(2) })
         }
         val list = tabs.values.toList()
         list.forEachIndexed { idx, tab ->
@@ -356,8 +359,9 @@ class CinemaRibbonView(
         }
         activeTabIndicator.visibility = VISIBLE
         val lp = activeTabIndicator.layoutParams as LayoutParams
-        if (lp.width != target.width) {
+        if (lp.width != target.width || (target.height > 0 && lp.height != target.height)) {
             lp.width = target.width
+            if (target.height > 0) lp.height = target.height
             activeTabIndicator.layoutParams = lp
         }
         if (!animate || TvStyle.lightweight(context)) {
@@ -460,7 +464,7 @@ class CinemaRibbonView(
     override fun fitToViewport(widthPx: Int, heightPx: Int) {
         if (widthPx <= 0 || heightPx <= 0) return
         val density = resources.displayMetrics.density
-        val fontScale = resources.configuration.fontScale.coerceIn(1f, 2f)
+        val fontScale = TvStyle.fontScale(context).coerceIn(1f, 2f)
         val vwDp = (widthPx / density).toInt()
         val vhDp = (heightPx / density).toInt()
         val edgeDp = (minOf(vwDp, vhDp) * 0.036f).roundToInt().coerceIn(10, 36)
@@ -472,8 +476,8 @@ class CinemaRibbonView(
 
         maxTabScrollWidthPx = ((widthPx - dp(edgeDp * 2)) * 0.62f).toInt().coerceAtLeast(dp(180))
 
-        val targetCardWDp = (174f + 26f * (fontScale - 1f)).roundToInt().coerceIn(128, maxOf(128, vwDp - edgeDp * 2 - 16))
-        val targetCardHDp = (112f + 18f * (fontScale - 1f)).roundToInt().coerceIn(78, maxOf(78, (vhDp * 0.42f).roundToInt()))
+        val targetCardWDp = (174f + 56f * (fontScale - 1f)).roundToInt().coerceIn(128, maxOf(128, vwDp - edgeDp * 2 - 16))
+        val targetCardHDp = (112f + 42f * (fontScale - 1f)).roundToInt().coerceIn(78, maxOf(78, (vhDp * 0.44f).roundToInt()))
         val newW = dp(targetCardWDp)
         val newH = dp(targetCardHDp)
         if (newW != cardWidthPx || newH != cardHeightPx) {
@@ -582,6 +586,7 @@ class CinemaChannelCard(
     private val blurEngine: CinemaBlurEngine?
 ) : LinearLayout(context) {
     private fun dp(n: Int) = TvStyle.dp(context, n)
+    private fun sp(base: Float) = TvStyle.sp(context, base)
     var channelId: String = ""
         private set
     private var missing = false
@@ -609,7 +614,7 @@ class CinemaChannelCard(
     }
 
     private val numView = TextView(context).apply {
-        textSize = 11.5f
+        textSize = sp(11.5f)
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
         fontFeatureSettings = "tnum"
@@ -620,7 +625,7 @@ class CinemaChannelCard(
         visibility = GONE
     }
     private val badgeView = TextView(context).apply {
-        textSize = 10.5f
+        textSize = sp(10.5f)
         setTextColor(TvStyle.muted)
         includeFontPadding = false
         maxLines = 1
@@ -633,7 +638,7 @@ class CinemaChannelCard(
         addView(logoView, FrameLayout.LayoutParams(dp(94), dp(34), Gravity.CENTER))
     }
     private val nameView = TextView(context).apply {
-        textSize = 13.5f
+        textSize = sp(13.5f)
         setTextColor(TvStyle.ink)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END
@@ -641,7 +646,7 @@ class CinemaChannelCard(
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
     private val subView = TextView(context).apply {
-        textSize = 11f
+        textSize = sp(11f)
         setTextColor(TvStyle.muted)
         maxLines = 1
         ellipsize = TextUtils.TruncateAt.END

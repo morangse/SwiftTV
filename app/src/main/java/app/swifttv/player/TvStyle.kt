@@ -18,6 +18,20 @@ import android.view.animation.Interpolator
 import android.view.animation.PathInterpolator
 import androidx.core.content.edit
 
+enum class FontScaleMode(val key: String, val title: String, val multiplier: Float) {
+    STANDARD("standard", "标准", 1.0f),
+    LARGE("large", "大号", 1.18f),
+    ELDERLY("elderly", "长辈大字", 1.35f),
+    EXTRA_LARGE("xlarge", "超大字", 1.55f);
+
+    fun next(): FontScaleMode = entries[(ordinal + 1) % entries.size]
+
+    companion object {
+        fun resolve(saved: String?): FontScaleMode =
+            entries.firstOrNull { it.key == saved } ?: STANDARD
+    }
+}
+
 /**
  * Obsidian Crystal & Porcelain Luminance Design Tokens (tvOS / visionOS Optical System):
  * Pure achromatic dark crystal surfaces + real backdrop vibrancy + crisp porcelain focus.
@@ -49,6 +63,20 @@ object TvStyle {
 
     fun dp(c: Context, n: Int) = (n * c.resources.displayMetrics.density).toInt()
     fun dpF(c: Context, n: Float) = n * c.resources.displayMetrics.density
+
+    fun fontScaleMode(c: Context): FontScaleMode {
+        val p = c.getSharedPreferences("appearance", Context.MODE_PRIVATE)
+        return FontScaleMode.resolve(p.getString("fontScaleMode", null))
+    }
+
+    fun setFontScaleMode(c: Context, mode: FontScaleMode) {
+        c.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit { putString("fontScaleMode", mode.key) }
+    }
+
+    fun fontScale(c: Context): Float =
+        (c.resources.configuration.fontScale * fontScaleMode(c).multiplier).coerceIn(0.85f, 2.0f)
+
+    fun sp(c: Context, baseSp: Float): Float = baseSp * fontScaleMode(c).multiplier
 
     fun lightweight(c: Context): Boolean {
         val p = c.getSharedPreferences("appearance", Context.MODE_PRIVATE)
