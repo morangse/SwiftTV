@@ -527,8 +527,10 @@
     setHref("heroTvDownload", data.tvApk.url);
     setHref("dlTvBtn", data.tvApk.url);
 
-    setText("dlInstVersion", data.instVerLabel || fb.installerApk.name.replace(/^SwiftTV-Installer-|\.apk$/g, ""));
-    setText("heroInstallerMeta", `${data.instVerLabel || "v1.1.1"} · 无线装 & 推源`);
+    const derivedInstVer = (data.installerApk?.name || fb.installerApk?.name || "").match(/SwiftTV-Installer-(.+)\.apk$/i);
+    const instVer = data.instVerLabel || (derivedInstVer ? `v${derivedInstVer[1]}` : "v1.1.2");
+    setText("dlInstVersion", instVer);
+    setText("heroInstallerMeta", `${instVer} · 无线装 & 推源`);
     setText("dlInstSize", data.installerApk.sizeLabel);
     setHref("heroInstallerDownload", data.installerApk.url);
     setHref("dlInstBtn", data.installerApk.url);
@@ -542,13 +544,14 @@
   }
 
   if (fb) {
+    const fbInstMatch = (fb.installerApk?.name || "").match(/SwiftTV-Installer-(.+)\.apk$/i);
     applyReleaseData({
       tag: fb.tag,
       releaseUrl: fb.releaseUrl,
       checksumsUrl: fb.checksumsUrl,
       tvApk: fb.tvApk,
       installerApk: fb.installerApk,
-      instVerLabel: "v1.1.1"
+      instVerLabel: fbInstMatch ? `v${fbInstMatch[1]}` : "v1.1.2"
     });
   }
 
