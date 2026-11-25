@@ -170,6 +170,13 @@ object TvStyle {
             rimBottomRight = Color.argb(16, 255, 255, 255)
         ))
     }
+
+    /** Primary action pill: frosted crystal rim when idle, solid porcelain white only when focused/pressed. */
+    fun primaryPillButton(c: Context): StateListDrawable = StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_pressed), porcelainSurface(c, PILL_RADIUS.toFloat()))
+        addState(intArrayOf(android.R.attr.state_focused), porcelainSurface(c, PILL_RADIUS.toFloat()))
+        addState(intArrayOf(), activeCrystalPill(c, PILL_RADIUS.toFloat()))
+    }
 }
 
 private class SpecularRoundedDrawable(

@@ -12,9 +12,10 @@ __pycache__/
 *.pyc
 *.zip
 *.apk
-!installer/app/src/main/assets/swifttv-0.4.1.apk
+!installer/app/src/main/assets/swifttv-0.4.2.apk
 *.aab
 *.pfx
 *.pem
+!app/src/main/resources/swifttv_extra_roots.pem
 .env
 .env.*

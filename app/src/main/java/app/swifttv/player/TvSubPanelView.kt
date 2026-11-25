@@ -600,24 +600,13 @@ class CinemaModalDialog(
         minWidth = dp(96); minimumWidth = dp(96)
         minHeight = dp(40); minimumHeight = dp(40)
         setPadding(dp(18), dp(8), dp(18), dp(8))
-        val defaultTextColor = if (primary) TvStyle.inkOnPorcelain else TvStyle.ink
-        setTextColor(defaultTextColor)
-        typeface = Typeface.create("sans-serif-medium", if (primary) Typeface.BOLD else Typeface.NORMAL)
-        background = if (primary) {
-            StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply {
-                    setColor(Color.WHITE)
-                    cornerRadius = TvStyle.dpF(context, 999f)
-                })
-                addState(intArrayOf(), TvStyle.porcelainSurface(context, 999f))
-            }
-        } else {
-            TvStyle.pillButton(context)
-        }
+        setTextColor(TvStyle.ink)
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        background = if (primary) TvStyle.primaryPillButton(context) else TvStyle.pillButton(context)
         stateListAnimator = null
         setOnFocusChangeListener { v, focused ->
-            setTextColor(if (focused || primary) TvStyle.inkOnPorcelain else TvStyle.ink)
-            typeface = Typeface.create("sans-serif-medium", if (focused || primary) Typeface.BOLD else Typeface.NORMAL)
+            setTextColor(if (focused) TvStyle.inkOnPorcelain else TvStyle.ink)
+            typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
             if (!TvStyle.lightweight(context)) {
                 v.animate().cancel()
                 val s = if (focused) 1.04f else 1f

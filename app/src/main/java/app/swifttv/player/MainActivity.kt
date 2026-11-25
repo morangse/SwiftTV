@@ -864,17 +864,15 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             this.text = label
             textSize = TvStyle.sp(this@MainActivity, 14f)
             isAllCaps = false
-            setTextColor(if (primary) TvStyle.inkOnPorcelain else ink)
-            typeface = Typeface.create("sans-serif-medium", if (primary) Typeface.BOLD else Typeface.NORMAL)
-            background = if (primary) TvStyle.porcelainSurface(this@MainActivity, 999f) else TvStyle.pillButton(this@MainActivity)
+            setTextColor(ink)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            background = if (primary) TvStyle.primaryPillButton(this@MainActivity) else TvStyle.pillButton(this@MainActivity)
             minHeight = dp(40); minimumHeight = dp(40)
             setPadding(dp(20), dp(8), dp(20), dp(8))
             stateListAnimator = null
-            if (!primary) {
-                setOnFocusChangeListener { _, focused ->
-                    setTextColor(if (focused) TvStyle.inkOnPorcelain else ink)
-                    typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
-                }
+            setOnFocusChangeListener { _, focused ->
+                setTextColor(if (focused) TvStyle.inkOnPorcelain else ink)
+                typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
             }
             setOnClickListener { onClick() }
         }
