@@ -14,8 +14,6 @@ import java.net.ConnectException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.nio.ByteBuffer
-import java.nio.charset.CodingErrorAction
 import java.security.cert.CertificateException
 import java.util.Collections
 import java.util.IdentityHashMap
@@ -63,8 +61,7 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
             val body = response.body ?: error("订阅没有返回内容")
             require(body.contentLength() <= M3uParser.MAX_BYTES) { "频道表不能超过 2 MB" }
             val bytes = body.byteStream().use { it.readBytesBounded(M3uParser.MAX_BYTES) }
-            val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
+            val text = TextDecoding.decodePlaylistBytes(bytes)
             return Download(text, response.header("ETag").orEmpty(), response.header("Last-Modified").orEmpty(), false)
         }
     }
@@ -106,8 +103,7 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
                     require(total <= M3uParser.MAX_BYTES) { "频道表不能超过 2 MB" }
                     out.write(buf, 0, n)
                 }
-                val text = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(out.toByteArray())).toString()
+                val text = TextDecoding.decodePlaylistBytes(out.toByteArray())
                 return ImportDownload(text, null, etag, lastModified)
             }
         }
@@ -169,8 +165,9 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
                 val result = runCatching {
                     response.use {
                         require(it.isSuccessful) { "线路服务器返回 HTTP " + it.code }
+                        val contentType = it.header("Content-Type").orEmpty().lowercase(java.util.Locale.ROOT)
                         val body = it.body ?: error("线路没有返回数据")
-                        val buffer = ByteArray(1024)
+                        val buffer = ByteArray(16384)
                         var offset = 0
                         var mime: String? = null
                         body.byteStream().use { input ->
@@ -179,6 +176,18 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
                                 if (n < 0) break
                                 offset += n
                                 mime = streamMime(buffer, offset)
+                            }
+                        }
+                        if (mime == null && offset > 0) {
+                            val sample = String(buffer, 0, minOf(offset, 128), Charsets.UTF_8).trimStart().lowercase(java.util.Locale.ROOT)
+                            val looksLikeHtml = sample.startsWith("<html") || sample.startsWith("<!doctype") || sample.startsWith("<head") || sample.startsWith("<body")
+                            if (!looksLikeHtml) {
+                                mime = when {
+                                    contentType.contains("mpegurl") -> "application/x-mpegURL"
+                                    contentType.contains("video/mp2t") -> "video/mp2t"
+                                    contentType.contains("video/x-flv") -> "video/x-flv"
+                                    else -> null
+                                }
                             }
                         }
                         mime ?: throw IOException("线路返回的内容不是 HLS 清单、MPEG-TS 或 FLV 视频")
@@ -285,6 +294,7 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
      * Continuous .ts/.flv streams are never warmed because aborting mid-body discards the socket.
      */
     fun warm(entry: Entry): Call? {
+        if (!SourceRoutes.isHttpFamily(entry.url)) return null
         val path = runCatching { httpUri(entry.url).path.orEmpty() }.getOrDefault("")
         if (path.endsWith(".ts", true) || path.endsWith(".flv", true)) return null
         val call = requestClient.newCall(Request.Builder().url(entry.url).header("User-Agent", USER_AGENT)

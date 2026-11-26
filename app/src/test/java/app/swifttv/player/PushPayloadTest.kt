@@ -26,5 +26,9 @@ class PushPayloadTest {
         assertNull(PushPayload.decode(filePayload))
         val badEpg = PushPayload.base64UrlEncode("""{"url":"https://a.example/1.m3u","epgUrl":"javascript:alert(1)"}""".toByteArray())
         assertNull(PushPayload.decode(badEpg))
+
+        val udpPush = PushPayload.encode(PushConfig(url = "udp://@239.1.1.1:5000", name = "组播测试"))
+        val decoded = PushPayload.decode(udpPush)
+        assertEquals("udp://239.1.1.1:5000", decoded?.url)
     }
 }

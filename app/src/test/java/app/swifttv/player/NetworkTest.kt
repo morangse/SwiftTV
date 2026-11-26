@@ -262,4 +262,22 @@ class NetworkTest {
         assertFalse(validationInfo.relayEligible)
         assertEquals("不是有效的 M3U 频道表", validationInfo.message)
     }
+
+    @Test fun warmSkipsNonHttpSchemesAndDownloadDecodesGb18030Playlists() {
+        val server = MockWebServer(); server.start()
+        val network = Network(null)
+        try {
+            assertNull(network.warm(Entry("udp", "UDP", "组播", "udp://239.1.1.1:5000")))
+            assertNull(network.warm(Entry("rtp", "RTP", "组播", "rtp://239.1.1.1:5000")))
+            assertNull(network.warm(Entry("rtsp", "RTSP", "直播", "rtsp://10.0.0.1/live")))
+            assertNull(network.warm(Entry("rtmp", "RTMP", "直播", "rtmp://10.0.0.1/live")))
+
+            val gbkTxt = "央视,#genre#\nCCTV1,http://example.com/1.m3u8\n"
+            val bytes = gbkTxt.toByteArray(java.nio.charset.Charset.forName("GB18030"))
+            server.enqueue(MockResponse().setBody(okio.Buffer().write(bytes)))
+            val downloaded = network.downloadForImport(server.url("/list.txt").toString())
+            assertTrue(downloaded.text!!.contains("央视"))
+            assertEquals(1, M3uParser.parseImport(downloaded.text!!).entries.size)
+        } finally { network.close(); server.shutdown() }
+    }
 }

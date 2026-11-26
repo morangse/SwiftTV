@@ -32,16 +32,30 @@ enum class RoutingMode(val key: String, val title: String) {
 /** Pure protocol-level route ranking and parallel race batch selection with zero third-party source knowledge. */
 object SourceRoutes {
     fun hostOf(url: String): String =
-        runCatching { httpUri(url).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
+        runCatching { streamUri(url).host.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
+
+    fun schemeOf(url: String): String =
+        runCatching { streamUri(url).scheme.orEmpty().lowercase(Locale.ROOT) }.getOrDefault("")
+
+    fun isHttpFamily(url: String): Boolean = schemeOf(url) in setOf("http", "https")
 
     fun isIpv6Literal(url: String): Boolean {
         val host = hostOf(url)
         return host.startsWith("[") && host.endsWith("]") && host.contains(':')
     }
 
-    fun group(entry: Entry): String = if (isIpv6Literal(entry.url)) "ipv6" else "ipv4"
+    fun group(entry: Entry): String = when (val s = schemeOf(entry.url)) {
+        "udp", "rtp", "rtsp", "rtmp" -> s
+        else -> if (isIpv6Literal(entry.url)) "ipv6" else "ipv4"
+    }
 
-    fun label(entry: Entry): String = if (isIpv6Literal(entry.url)) "IPv6 线路" else "IPv4 线路"
+    fun label(entry: Entry): String = when (schemeOf(entry.url)) {
+        "udp" -> "UDP 组播"
+        "rtp" -> "RTP 组播"
+        "rtsp" -> "RTSP 线路"
+        "rtmp" -> "RTMP 线路"
+        else -> if (isIpv6Literal(entry.url)) "IPv6 线路" else "IPv4 线路"
+    }
 
     fun rank(
         sources: List<Entry>,
@@ -89,8 +103,9 @@ object SourceRoutes {
         maxCount: Int = 3,
         ipv6Available: Boolean = true
     ): List<Entry> {
-        if (remaining.isEmpty() || maxCount <= 0) return emptyList()
-        val eligible = if (ipv6Available) remaining else remaining.filterNot { isIpv6Literal(it.url) }.ifEmpty { remaining }
+        val httpRemaining = remaining.filter { isHttpFamily(it.url) }
+        if (httpRemaining.isEmpty() || maxCount <= 0) return emptyList()
+        val eligible = if (ipv6Available) httpRemaining else httpRemaining.filterNot { isIpv6Literal(it.url) }.ifEmpty { httpRemaining }
         val picked = mutableListOf<Entry>()
         val seenHosts = mutableSetOf<String>()
         for (entry in eligible) {

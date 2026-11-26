@@ -16,7 +16,7 @@ object PushPayload {
     private const val URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
     fun encode(config: PushConfig): String {
-        httpUri(config.url)
+        streamUri(config.url)
         val epg = config.epgUrl.trim()
         if (epg.isNotEmpty()) httpUri(epg)
         val json = JSONObject()
@@ -35,11 +35,11 @@ object PushPayload {
             val bytes = base64UrlDecode(raw)
             val root = JSONObject(bytes.toString(Charsets.UTF_8))
             val url = root.getString("url").trim()
-            httpUri(url)
+            val normalizedUrl = streamUri(url).toString()
             val epgUrl = root.optString("epgUrl").trim()
             if (epgUrl.isNotEmpty()) httpUri(epgUrl)
             PushConfig(
-                url = url,
+                url = normalizedUrl,
                 name = root.optString("name").trim().take(80),
                 epgUrl = epgUrl,
                 localSnapshot = root.optBoolean("localSnapshot", false)

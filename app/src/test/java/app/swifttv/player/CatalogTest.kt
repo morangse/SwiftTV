@@ -180,4 +180,63 @@ class CatalogTest {
         val legacy = CatalogStore.encode(state).replace("\"failures\":2,", "").replace("\"cancelled\":2,", "").replace(",\"failures\":2", "").replace(",\"cancelled\":2", "")
         assertTrue(CatalogStore.decode(legacy).stats.getValue("x").failures > 0)
     }
+
+    @Test fun parsesAptvExtendedM3uWithoutFalseHlsClassificationAndExtractsInlineHeaders() {
+        val aptv = """
+            #EXTM3U x-tvg-url="https://epg.example/t.xml"
+            #EXT-X-APP APTV
+            #EXT-X-APTV-TYPE remote
+            #EXT-X-SUB-URL https://example.com/sub.m3u
+            #EXT-X-APTV-LATENCY: FALSE
+            #EXTINF:-1 tvg-id="CCTV1" tvg-name="CCTV1" http-user-agent="AptvPlayer-UA" group-title="央视IPV4",CCTV1
+            http://101.35.240.114:88/live.php?id=CCTV1
+            #EXTINF:-1 tvg-id="五星体育" http-user-agent="iPhone" http-header="Referer=https://live.kankanews.com/" group-title="卫视IPV4",五星体育
+            http://101.35.240.114:88/live.php?id=sports
+            #EXTINF:-1 group-title="广西",广西台
+            rtmp://live.gxrb.com.cn/hls/a23
+        """.trimIndent()
+        assertFalse(M3uParser.isHlsManifest(aptv))
+        val parsed = M3uParser.parseImport(aptv, sourceUrl = "https://cumtwjq.github.io/iptv-subscriptions/aptv-iptv.m3u")
+        assertEquals(3, parsed.entries.size)
+        assertEquals("AptvPlayer-UA", parsed.entries[0].headers["User-Agent"])
+        assertEquals("iPhone", parsed.entries[1].headers["User-Agent"])
+        assertEquals("https://live.kankanews.com/", parsed.entries[1].headers["Referer"])
+        assertEquals("rtmp://live.gxrb.com.cn/hls/a23", parsed.entries[2].url)
+    }
+
+    @Test fun parsesTxtGenreMultiSourcePipeHeadersJsonAndLocalUdpRtpStreams() {
+        val txt = """
+            ; local multicast + web playlist
+            央视频道,#genre#
+            CCTV1,udp://@239.1.1.1:5000${'$'}组播#rtp://239.1.1.2:5002#http://192.168.1.1:4022/rtp/239.1.1.1:5000|User-Agent=CustomUA&Referer=https://a.example/${'$'}线路3
+            卫视频道，#genre#
+            湖南卫视，rtsp://10.0.0.1:554/live/hunan.sdp
+        """.trimIndent()
+        val parsedTxt = M3uParser.parseImport(txt)
+        assertEquals(4, parsedTxt.entries.size)
+        assertEquals("udp://239.1.1.1:5000", parsedTxt.entries[0].url)
+        assertEquals("rtp://239.1.1.2:5002", parsedTxt.entries[1].url)
+        assertEquals("http://192.168.1.1:4022/rtp/239.1.1.1:5000", parsedTxt.entries[2].url)
+        assertEquals("CustomUA", parsedTxt.entries[2].headers["User-Agent"])
+        assertEquals("https://a.example/", parsedTxt.entries[2].headers["Referer"])
+        assertEquals("卫视频道", parsedTxt.entries[3].group)
+        assertEquals("rtsp://10.0.0.1:554/live/hunan.sdp", parsedTxt.entries[3].url)
+
+        val json = """[{"name":"测试频道","group":"测试分组","urls":["https://cdn.example/live.m3u8${'$'}超清"],"headers":{"User-Agent":"TVBox"}}]"""
+        val parsedJson = M3uParser.parseImport(json)
+        assertEquals(1, parsedJson.entries.size)
+        assertEquals("TVBox", parsedJson.entries.single().headers["User-Agent"])
+        assertEquals("https://cdn.example/live.m3u8", parsedJson.entries.single().url)
+    }
+
+    @Test fun decodesGb18030PlaylistsAndSupportsExtHttpWithoutExtm3uHeader() {
+        val m3u = "#EXTINF:-1,河南卫视\n#EXTGRP:卫视频道\n#EXTHTTP:{\"User-Agent\":\"KodiUA\",\"Referer\":\"https://henan.example/\"}\nhttps://cdn.example/henan.m3u8\n"
+        val gbkBytes = m3u.toByteArray(java.nio.charset.Charset.forName("GB18030"))
+        val decoded = TextDecoding.decodePlaylistBytes(gbkBytes)
+        val parsed = M3uParser.parseImport(decoded)
+        assertEquals("河南卫视", parsed.entries.single().name)
+        assertEquals("卫视频道", parsed.entries.single().group)
+        assertEquals("KodiUA", parsed.entries.single().headers["User-Agent"])
+        assertEquals("https://henan.example/", parsed.entries.single().headers["Referer"])
+    }
 }

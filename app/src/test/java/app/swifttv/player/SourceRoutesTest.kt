@@ -84,4 +84,14 @@ class SourceRoutesTest {
         assertEquals(RoutingMode.PLAYBACK_HISTORY, RoutingMode.resolve("playback_history"))
         assertEquals(RoutingMode.AUTO, RoutingMode.resolve("unknown_mode"))
     }
+
+    @Test fun excludesMulticastAndNonHttpStreamsFromHttpRaceBatch() {
+        val udp = Entry("u", "U", "组播", "udp://239.1.1.1:5000")
+        val rtp = Entry("r", "R", "组播", "rtp://239.1.1.2:5000")
+        val http = Entry("h", "H", "网络", "https://cdn.example/live.m3u8")
+        assertEquals("UDP 组播", SourceRoutes.label(udp))
+        assertEquals("RTP 组播", SourceRoutes.label(rtp))
+        assertEquals(listOf(http), SourceRoutes.pickRaceBatch(listOf(udp, rtp, http), maxCount = 3))
+        assertEquals(emptyList<Entry>(), SourceRoutes.pickRaceBatch(listOf(udp, rtp), maxCount = 3))
+    }
 }

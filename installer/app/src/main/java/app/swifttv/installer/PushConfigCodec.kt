@@ -21,14 +21,27 @@ object PushConfigCodec {
         return uri
     }
 
+    fun streamUri(raw: String): URI {
+        val trimmed = raw.trim().replaceFirst(Regex("^(?i)(udp|rtp)://@"), "$1://")
+        require(trimmed.isNotEmpty() && !trimmed.any { it.isWhitespace() || it.isISOControl() }) {
+            "请输入有效的订阅或直播流地址"
+        }
+        val uri = URI(trimmed)
+        val scheme = uri.scheme?.lowercase()
+        val allowed = scheme in setOf("http", "https", "udp", "rtp", "rtsp", "rtmp")
+        require(allowed && (!uri.host.isNullOrBlank() || ((scheme == "udp" || scheme == "rtp") && uri.port in 1..65535))) {
+            "仅支持 http://、https://、udp://、rtp://、rtsp:// 或 rtmp:// 地址"
+        }
+        return uri
+    }
+
     fun encode(
         url: String,
         name: String = "",
         epgUrl: String = "",
         localSnapshot: Boolean = false
     ): String {
-        val cleanUrl = url.trim()
-        httpUri(cleanUrl)
+        val cleanUrl = streamUri(url).toString()
         val cleanEpg = epgUrl.trim()
         if (cleanEpg.isNotEmpty()) httpUri(cleanEpg)
         val cleanName = name.trim().take(80)

@@ -972,6 +972,6 @@ class InstallerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     companion object {
-        private const val BUNDLED_APK_NAME = "swifttv-0.4.2.apk"
+        private const val BUNDLED_APK_NAME = "swifttv-0.4.3.apk"
     }
 }

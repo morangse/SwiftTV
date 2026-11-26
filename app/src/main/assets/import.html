@@ -25,24 +25,24 @@ footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);font-si
 <header><span class="brand">SwiftTV</span><span class="status"><i class="dot"></i>局域网配对</span></header>
 <section id="editor">
 <h1>把合法订阅源，<br>一键导入电视。</h1>
-<p class="intro">添加 M3U 频道表、单频道 HLS（.m3u8）直播流或 XMLTV 节目单。所有配置仅保存在您的电视本机。</p>
+<p class="intro">添加 M3U / TXT / JSON 频道表、单频道 HLS（.m3u8）/ UDP / RTP / RTSP 直播流或 XMLTV 节目单。所有配置仅保存在您的电视本机。</p>
 <div class="tabs" role="tablist">
  <button type="button" class="tab" role="tab" aria-selected="true" id="urlTab">订阅 / 单流地址</button>
- <button type="button" class="tab" role="tab" aria-selected="false" id="fileTab">本地 M3U 文件</button>
+ <button type="button" class="tab" role="tab" aria-selected="false" id="fileTab">本地 M3U / TXT 文件</button>
  <button type="button" class="tab hidden" role="tab" aria-selected="false" id="manageTab">订阅与节目单</button>
 </div>
 <form id="importForm">
  <div id="urlPanel">
-  <label for="url">频道表或单频道直播流地址（M3U / M3U8 / TS / FLV）</label>
+  <label for="url">频道表或单频道直播流地址（M3U / TXT / .m3u8 / UDP / RTP / RTSP）</label>
   <input id="url" type="url" inputmode="url" autocomplete="off" autocapitalize="none" placeholder="https://example.com/channels.m3u">
  </div>
  <div id="filePanel" class="hidden">
-  <label for="file">选择本地 M3U 频道表</label>
-  <input id="file" type="file" accept=".m3u,.m3u8,text/plain,application/x-mpegURL">
+  <label for="file">选择本地 M3U / TXT / JSON 频道表（自动识别 UTF-8 与 GBK 编码）</label>
+  <input id="file" type="file" accept=".m3u,.m3u8,.txt,.json,text/plain,application/json,application/x-mpegURL">
  </div>
  <label for="subName">备注名称（可选，单频道直播流建议填写频道名）</label>
  <input id="subName" type="text" maxlength="60" autocomplete="off" placeholder="留空则自动识别或使用域名">
- <p class="note">支持 UTF-8 M3U 频道表（最大 2 MB）及单频道 HLS（.m3u8）直链；若 M3U 头部含 x-tvg-url / url-tvg 节目单会自动识别。</p>
+ <p class="note">兼容标准/APTV M3U、TVBox 分组 TXT（#genre# &amp; 多源 # 分隔）、JSON 及单频道 HLS / UDP / RTP / RTSP；最大 2 MB。</p>
  <button class="action" id="previewButton" type="submit">预览频道 →</button>
 </form>
 <section id="preview" class="preview hidden" aria-label="频道预览">
@@ -109,6 +109,13 @@ async function request(method,path,data){
   throw e;
  }finally{clearTimeout(timeout)}
 }
+function decodePlaylistBuffer(buf){
+ try{return new TextDecoder('utf-8',{fatal:true}).decode(buf)}
+ catch(_){
+  try{return new TextDecoder('gb18030',{fatal:true}).decode(buf)}
+  catch(__){return new TextDecoder('utf-8').decode(buf)}
+ }
+}
 async function fetchViaPhone(url){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000);
  try{
@@ -116,10 +123,11 @@ async function fetchViaPhone(url){
   if(!resp.ok)throw new Error('HTTP '+resp.status);
   const len=Number(resp.headers.get('content-length')||0);
   if(len>2097152)throw new Error('文件超过 2 MB 上限');
-  const text=await resp.text();
-  if(new Blob([text]).size>2097152)throw new Error('文件超过 2 MB 上限');
+  const buf=await resp.arrayBuffer();
+  if(buf.byteLength>2097152)throw new Error('文件超过 2 MB 上限');
+  const text=decodePlaylistBuffer(buf);
   const trimmed=text.replace(/^\uFEFF/,'').trimStart();
-  if(!trimmed.startsWith('#EXTM3U'))throw new Error('内容不是有效的 M3U 频道表');
+  if(!trimmed||/^<(?:!doctype|html|head|body)\b/i.test(trimmed))throw new Error('目标返回了网页或空内容，不是有效的频道列表');
   return text;
  }finally{clearTimeout(timeout)}
 }
@@ -182,8 +190,9 @@ el('importForm').onsubmit=async function(event){
     message(r.skipped?'已通过手机代拉取并跳过 '+r.skipped+' 条无效记录。请确认频道后保存。':'已通过手机代拉取并解析就绪。请确认频道后保存。',false);
    }
   }else{
-   const file=el('file').files[0];if(!file)throw new Error('请选择 M3U 文件');if(file.size>2097152)throw new Error('文件不能超过 2 MB');
-   const r=await request('POST','/api/import',{content:await file.text(),name:customName||file.name});
+   const file=el('file').files[0];if(!file)throw new Error('请选择 M3U / TXT / JSON 文件');if(file.size>2097152)throw new Error('文件不能超过 2 MB');
+   const text=decodePlaylistBuffer(await file.arrayBuffer());
+   const r=await request('POST','/api/import',{content:text,name:customName||file.name});
    renderPreview(r);
    message(r.skipped?'已跳过 '+r.skipped+' 条无效记录。请确认频道后保存。':'预览就绪。请确认频道后保存。',false);
   }

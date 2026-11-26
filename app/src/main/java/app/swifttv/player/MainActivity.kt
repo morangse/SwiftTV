@@ -105,7 +105,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             io.execute {
                 try {
                     val bytes = contentResolver.openInputStream(uri)?.use { it.readBytesBounded(M3uParser.MAX_BYTES) } ?: error("无法读取文件")
-                    val value = createPreview(JSONObject().put("content", bytes.toString(Charsets.UTF_8)).put("name", "本地频道表"))
+                    val text = TextDecoding.decodePlaylistBytes(bytes)
+                    val value = createPreview(JSONObject().put("content", text).put("name", "本地频道表"))
                     postUi { confirmPreview(value) }
                 } catch (e: Exception) { postUi { toast(e.message ?: "文件读取失败") } }
             }
@@ -658,7 +659,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             panel.addInfoBlock("当前没有已保存的订阅。")
         } else {
             subs.forEach { sub ->
-                val origin = if (sub.url.isEmpty()) "本机内置/本地文件" else java.net.URI(sub.url).host
+                val origin = if (sub.url.isEmpty()) "本机内置/本地文件" else (runCatching { streamUri(sub.url).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: sub.url)
                 val epgTag = if (sub.epgUrl.isNotEmpty()) " · 含节目单" else ""
                 panel.addActionRow(sub.name, origin + epgTag, "删除", statusColor = TvStyle.sage) { _, _ ->
                     showModal(
@@ -718,7 +719,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private fun manualImport() {
         showModal(
             title = "添加订阅或单频道直播流",
-            message = "输入 M3U 频道表链接，或直接输入单频道 HLS（.m3u8）/ TS / FLV 直播流地址。",
+            message = "支持 M3U / TXT / JSON 订阅链接，或直接输入单频道 HLS (.m3u8) / TS / FLV / UDP / RTP / RTSP / RTMP 地址。",
             inputHint = "https://example.com/channels.m3u",
             primaryLabel = "读取预览"
         ) { raw ->
@@ -796,25 +797,29 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun createPreview(data: JSONObject): ImportPreview {
-        val url = data.optString("url").trim().replace(Regex("[\\u200B-\\u200D\\uFEFF]"), "")
+        val rawUrl = data.optString("url").trim().replace(Regex("[\\u200B-\\u200D\\uFEFF]"), "")
         val inlineContent = data.optString("content")
         val explicitName = data.optString("name").trim().take(80)
-        if (url.isNotEmpty()) httpUri(url)
-        val download = if (inlineContent.isEmpty() && url.isNotEmpty()) network.downloadForImport(url) else null
+        val parsedUri = if (rawUrl.isNotEmpty()) streamUri(rawUrl) else null
+        val url = parsedUri?.toString().orEmpty()
+        val isHttp = parsedUri?.scheme?.lowercase(java.util.Locale.ROOT) in setOf("http", "https")
+        val download = if (inlineContent.isEmpty() && isHttp) network.downloadForImport(url) else null
         val parsed = when {
             download?.directStreamMime != null -> M3uParser.singleStreamPlaylist(url, explicitName)
+            inlineContent.isEmpty() && !isHttp && url.isNotEmpty() -> M3uParser.singleStreamPlaylist(url, explicitName)
             else -> M3uParser.parseImport(download?.text ?: inlineContent, url, explicitName)
         }
         val name = when {
             explicitName.isNotEmpty() -> explicitName
             parsed.entries.size == 1 && parsed.entries.first().group == M3uParser.SINGLE_STREAM_GROUP -> parsed.entries.first().name
-            url.isNotEmpty() -> httpUri(url).host
+            url.isNotEmpty() -> parsedUri?.host?.takeIf { it.isNotBlank() } ?: url
             else -> "本地频道表"
         }
+        val subUrl = if (inlineContent.isEmpty() && isHttp && download?.directStreamMime == null) url else if (isHttp && inlineContent.isNotEmpty()) url else ""
         val sub = Subscription(
             sourceId(if (url.isNotEmpty()) "url:$url" else "file:$name"),
             name,
-            url,
+            subUrl,
             System.currentTimeMillis(),
             download?.etag.orEmpty(),
             download?.lastModified.orEmpty(),
@@ -1077,7 +1082,9 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private fun refreshSubscriptions(explicit: Boolean) {
         if (refreshing) { if (explicit) toast("正在后台刷新订阅…"); return }
         val now = System.currentTimeMillis()
-        val subs = store.snapshot().subscriptions.filter { it.url.isNotEmpty() && (explicit || now - it.updatedAt >= 86400000L) }
+        val subs = store.snapshot().subscriptions.filter {
+            SourceRoutes.isHttpFamily(it.url) && (explicit || now - it.updatedAt >= 86400000L)
+        }
         if (subs.isEmpty()) { if (explicit) toast("当前无需要刷新的远程订阅"); return }
         refreshing = true
         if (explicit) toast("正在同步远程频道表…")

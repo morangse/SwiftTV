@@ -19,12 +19,17 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.datasource.rtmp.RtmpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.rtsp.RtspMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.extractor.DefaultExtractorsFactory
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
+import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.PlayerView
 import okhttp3.Call
 import java.util.UUID
@@ -69,8 +74,27 @@ object PlaybackRecoveryPolicy {
     const val RECONNECT_DELAY_MS = 800L
     const val NO_TRACK_TIMEOUT_MS = 3_500L
     const val FIRST_FRAME_TIMEOUT_MS = 7_500L
+    const val UDP_NO_TRACK_TIMEOUT_MS = 6_000L
+    const val UDP_FIRST_FRAME_TIMEOUT_MS = 10_000L
     const val REBUFFER_TIMEOUT_MS = 5_000L
     const val NO_PROGRESS_TIMEOUT_MS = 6_000L
+
+    fun isLongStartupStream(url: String, mime: String? = null): Boolean {
+        val lower = url.lowercase(java.util.Locale.ROOT)
+        return lower.startsWith("udp://") ||
+            lower.startsWith("rtp://") ||
+            lower.startsWith("rtsp://") ||
+            lower.startsWith("rtmp://") ||
+            lower.contains("/udp/") ||
+            lower.contains("/rtp/") ||
+            mime == MimeTypes.VIDEO_MP2T
+    }
+
+    fun noTrackTimeoutMs(url: String, mime: String? = null): Long =
+        if (isLongStartupStream(url, mime)) UDP_NO_TRACK_TIMEOUT_MS else NO_TRACK_TIMEOUT_MS
+
+    fun firstFrameTimeoutMs(url: String, mime: String? = null): Long =
+        if (isLongStartupStream(url, mime)) UDP_FIRST_FRAME_TIMEOUT_MS else FIRST_FRAME_TIMEOUT_MS
 
     fun cooldownMs(consecutiveFailures: Int): Long = when {
         consecutiveFailures <= 1 -> 120_000L
@@ -127,17 +151,39 @@ class PlaybackController(
     private val codecProfile = HardwareCodecProbe.profile(context)
     private val selector = DefaultTrackSelector(context).apply {
         val preferredVideo = if (codecProfile.supports4kHevc50 || codecProfile.supports1080pHevc) {
-            arrayOf(MimeTypes.VIDEO_H264, MimeTypes.VIDEO_H265)
+            arrayOf(MimeTypes.VIDEO_H264, MimeTypes.VIDEO_H265, MimeTypes.VIDEO_MPEG2)
         } else {
-            arrayOf(MimeTypes.VIDEO_H264)
+            arrayOf(MimeTypes.VIDEO_H264, MimeTypes.VIDEO_MPEG2)
         }
         parameters = buildUponParameters()
             .setMaxVideoSize(codecProfile.maxWidth, codecProfile.maxHeight)
             .setPreferredVideoMimeTypes(*preferredVideo)
-            .setPreferredAudioMimeTypes(MimeTypes.AUDIO_AAC)
-            .setExceedVideoConstraintsIfNecessary(true).build()
+            .setPreferredAudioMimeTypes(
+                MimeTypes.AUDIO_AAC,
+                MimeTypes.AUDIO_MPEG_L2,
+                MimeTypes.AUDIO_AC3,
+                MimeTypes.AUDIO_E_AC3
+            )
+            .setAllowAudioMixedMimeTypeAdaptiveness(true)
+            .setAllowVideoNonSeamlessAdaptiveness(true)
+            .setExceedAudioConstraintsIfNecessary(true)
+            .setExceedVideoConstraintsIfNecessary(true)
+            .setExceedRendererCapabilitiesIfNecessary(true)
+            .build()
     }
-    val player: ExoPlayer = ExoPlayer.Builder(context, DefaultRenderersFactory(context).setEnableDecoderFallback(true))
+    private val extractorsFactory = DefaultExtractorsFactory()
+        .setConstantBitrateSeekingEnabled(false)
+        .setTsExtractorFlags(
+            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
+        )
+        .setTsExtractorTimestampSearchBytes(TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES * 4)
+    val player: ExoPlayer = ExoPlayer.Builder(
+        context,
+        DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+    )
         .setTrackSelector(selector)
         .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(3000, 15000, 700, 1800)
             .setTargetBufferBytes(16 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build())
@@ -154,6 +200,7 @@ class PlaybackController(
         private set
     var exhausted: Boolean = false
         private set
+    private var activeMime: String? = null
     private var entry: Entry? = null
     private var queue: List<Entry> = emptyList()
     private var queueIndex = 0
@@ -281,7 +328,7 @@ class PlaybackController(
         val stats = store.snapshot().stats
         val headStat = stats[sourceId(head.url)]
         val provenHealthy = headStat != null && headStat.successes > 0 && headStat.error.isEmpty() && headStat.cooldownUntil <= System.currentTimeMillis()
-        if (probing || manualPreferred || provenHealthy || queue.size - queueIndex <= 1) {
+        if (probing || manualPreferred || provenHealthy || queue.size - queueIndex <= 1 || !SourceRoutes.isHttpFamily(head.url)) {
             manualPreferred = false
             startSource(queue[queueIndex++], resetRecoveryBudget = true)
             return
@@ -366,13 +413,19 @@ class PlaybackController(
         if (resetRecoveryBudget) {
             store.record(next.url) { it.copy(attempts = it.attempts + 1, checkedAt = System.currentTimeMillis(), audioStarted = false, error = "", lastOutcome = "connecting") }
         }
-        val path = httpUri(next.url).path.orEmpty()
+        val uri = runCatching { streamUri(next.url) }.getOrNull()
+        val scheme = uri?.scheme?.lowercase(java.util.Locale.ROOT).orEmpty()
+        val path = uri?.path.orEmpty()
         val mime = when {
+            scheme == "udp" || scheme == "rtp" -> MimeTypes.VIDEO_MP2T
+            scheme == "rtsp" -> MimeTypes.APPLICATION_RTSP
+            scheme == "rtmp" -> ""
             path.endsWith(".m3u8", true) -> MimeTypes.APPLICATION_M3U8
-            path.endsWith(".ts", true) -> MimeTypes.VIDEO_MP2T
+            path.endsWith(".ts", true) || path.contains("/udp/", true) || path.contains("/rtp/", true) -> MimeTypes.VIDEO_MP2T
             path.endsWith(".flv", true) -> MimeTypes.VIDEO_FLV
             else -> null
         }
+        activeMime = mime
         callback.onStatus(current, when {
             probing -> "正在检测线路…"
             !resetRecoveryBudget -> "网络波动，正在自动重连…"
@@ -384,7 +437,10 @@ class PlaybackController(
             sniffCall = network.sniff(next) { result ->
                 handler.post {
                     if (!closed && switchId == expected && entry?.url == next.url) {
-                        result.fold({ prepare(next, it) }, {
+                        result.fold({ detected ->
+                            activeMime = detected
+                            prepare(next, detected)
+                        }, {
                             val reachability = PlaybackErrors.isReachabilityFailure(it)
                             val message = if (reachability) PlaybackErrors.describe(it) else it.message ?: "无法读取线路清单"
                             fail(message)
@@ -396,10 +452,24 @@ class PlaybackController(
     }
 
     private fun prepare(next: Entry, mime: String) {
-        val factory = OkHttpDataSource.Factory(network.client).setUserAgent(Network.USER_AGENT).setDefaultRequestProperties(next.headers)
-        val mediaFactory = DefaultMediaSourceFactory(factory)
-        val item = MediaItem.Builder().setUri(next.url).setMediaId(switchId).setMimeType(mime).build()
-        player.setMediaSource(mediaFactory.createMediaSource(item))
+        val scheme = SourceRoutes.schemeOf(next.url)
+        val itemBuilder = MediaItem.Builder().setUri(next.url).setMediaId(switchId)
+        if (mime.isNotEmpty()) itemBuilder.setMimeType(mime)
+        val item = itemBuilder.build()
+        val mediaSource = when (scheme) {
+            "rtsp" -> RtspMediaSource.Factory().setTimeoutMs(8000).createMediaSource(item)
+            "rtmp" -> DefaultMediaSourceFactory(RtmpDataSource.Factory(), extractorsFactory).createMediaSource(item)
+            "udp", "rtp" -> DefaultMediaSourceFactory({ MulticastUdpDataSource(context) }, extractorsFactory).createMediaSource(item)
+            else -> {
+                val effectiveUa = next.headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
+                    ?: Network.USER_AGENT
+                val factory = OkHttpDataSource.Factory(network.client)
+                    .setUserAgent(effectiveUa)
+                    .setDefaultRequestProperties(next.headers)
+                DefaultMediaSourceFactory(factory, extractorsFactory).createMediaSource(item)
+            }
+        }
+        player.setMediaSource(mediaSource)
         player.prepare()
         player.playWhenReady = true
     }
@@ -479,13 +549,14 @@ class PlaybackController(
                 if (firstFrame && player.playbackState == Player.STATE_BUFFERING) rebufferUnflushed += delta
                 val position = player.currentPosition
                 if (position != lastPosition) { noProgressAt = now; lastPosition = position }
+                val activeUrl = entry?.url.orEmpty()
                 val firstFrameLimitMs = if (lastFormat != null) {
-                    PlaybackRecoveryPolicy.FIRST_FRAME_TIMEOUT_MS
+                    PlaybackRecoveryPolicy.firstFrameTimeoutMs(activeUrl, activeMime)
                 } else {
-                    PlaybackRecoveryPolicy.NO_TRACK_TIMEOUT_MS
+                    PlaybackRecoveryPolicy.noTrackTimeoutMs(activeUrl, activeMime)
                 }
                 if (!firstFrame && now - sourceStartedAt >= firstFrameLimitMs) {
-                    fail(if (lastFormat != null) "7.5 秒内未渲染视频首帧" else "3.5 秒内未建立视频流")
+                    fail(if (lastFormat != null) "未渲染视频首帧（超时）" else "未检测到有效音视频流（超时）")
                 } else if (bufferingAt > 0 && now - bufferingAt >= PlaybackRecoveryPolicy.REBUFFER_TIMEOUT_MS) {
                     recoverOrFail(null, "持续缓冲超过五秒")
                 } else if (firstFrame && player.isPlaying && now - noProgressAt >= PlaybackRecoveryPolicy.NO_PROGRESS_TIMEOUT_MS) {
@@ -642,7 +713,8 @@ class PlaybackController(
                     for (i in 0 until video.length) if (video.isTrackSelected(i)) {
                         val format = video.getTrackFormat(i)
                         lastFormat = format
-                        if ((format.width > 1920 || format.height > 1080) && !supportsHardware(format)) {
+                        val isUhd = format.width >= 3200 || format.height >= 1800
+                        if (isUhd && !supportsHardware(format)) {
                             fail("此电视没有适配这条 4K 线路的硬件解码器")
                             return
                         }

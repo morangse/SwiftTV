@@ -15,6 +15,8 @@ class PushConfigCodecTest {
             localSnapshot = false
         )
         assertTrue(Regex("^[A-Za-z0-9_-]+$").matches(b64))
+        assertTrue(Regex("^[A-Za-z0-9_-]+$").matches(PushConfigCodec.encode(url = "udp://@239.1.1.1:5000")))
+        assertTrue(Regex("^[A-Za-z0-9_-]+$").matches(PushConfigCodec.encode(url = "rtsp://192.168.1.10:554/live")))
         assertTrue(runCatching { PushConfigCodec.encode("ftp://example.com/a.m3u") }.isFailure)
         assertTrue(runCatching { PushConfigCodec.encode("https://example.com/a.m3u", epgUrl = "javascript:alert(1)") }.isFailure)
     }
