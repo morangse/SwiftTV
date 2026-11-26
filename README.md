@@ -9,9 +9,9 @@
 <p align="center">
   <a href="https://morangse.github.io/SwiftTV/"><strong>官网首页</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.3/SwiftTV-0.4.3.apk"><strong>下载 SwiftTV 0.4.3</strong></a>
+  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk"><strong>下载 SwiftTV 0.4.4</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.3">v0.4.3 发行说明</a>
+  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.4">v0.4.4 发行说明</a>
   &nbsp;·&nbsp;
   <a href="#安装与导入">快速上手</a>
   &nbsp;·&nbsp;
@@ -26,7 +26,7 @@
   <img src="docs/screenshots/channel-gallery.jpg" width="900" alt="SwiftTV 播放演示视频时打开的透明频道画廊">
 </p>
 
-<p align="center"><sub>播放时按确认键或点按画面，打开底部频道画廊。</sub></p>
+<p align="center"><sub>播放时按确认键或点按画面，打开左侧双栏抽屉。</sub></p>
 
 ## 核心特性
 
@@ -35,21 +35,21 @@
 | **开箱即扫 · 手机配对导源** | 首次启动或频道列表为空时，直接弹出**局域网配对二维码**；用手机浏览器扫码或直接用 [SwiftTV 安装助手](installer/) 一键推送订阅链接、单频道 `.m3u8` 或手机本地文件，免去电视遥控器输入长网址的麻烦。 |
 | **M3U 与单频道 HLS 全兼容** | 支持标准 `#EXTINF` M3U/M3U8 列表、**单频道 HLS 媒体/主清单（`.m3u8`）**、TS / HTTP-FLV / fMP4 直播直链。保存前自动预览，远程订阅刷新失败时保留本地旧表。 |
 | **多主机并发测通与极速换源** | 播放切台时不再死等单一线路超时：当头部缺少已验证健康的线路时，最多对 **3 条不同主机**发起并发轻量探测（`2.5s` 超时，读取 `<= 4 KB` 报文头即锁定最快可播流并取消其余请求），配合分级看门狗（`3.5s` 无轨、`7.5s` 首帧）与指数退避冷却。 |
-| **按协议自动选路** | 实时检测本机全局 IPv6 连通能力（`LinkProperties`），在「自动识别 / IPv6 优先 / IPv4 优先 / 历史首帧优先」之间调度同频道多条线路。 |
-| **遥控器优先的透明大屏 UI** | 方向键先浏览焦点、确认后切换，全屏无遮挡；支持悬浮频道画廊、右侧设置/线路面板、数字键选台、XMLTV 节目单及低配纯色切换。 |
+| **按协议自动选路** | 实时检测本机全局 IPv6 连通能力（`LinkProperties`），在「自动择优 / IPv6 优先 / IPv4 优先 / 历史首帧优先」之间调度同频道多条线路。 |
+| **遥控器优先的透明大屏 UI** | 方向键先浏览焦点、确认后切换，全屏无遮挡；左侧双栏抽屉无缝集成全分类频道表、`0` 键一键定位在播频道、同栏内联线路/收藏详情与同栏设置（4 挡长辈大字、轻量纯黑切换、XMLTV 节目单）。 |
 | **线路测速与脱敏诊断** | 支持单频道/分类线路测速；手机扫码可导出路径与密钥脱敏后的诊断 JSON，便于排查本机网络和解码兼容问题。 |
 
-| 线路与收藏 | 控制中心 |
+| 线路与收藏 | 同栏设置 |
 | :---: | :---: |
-| [<img src="docs/screenshots/channel-details.jpg" width="430" alt="频道详情中的收藏、节目、线路与首帧结果">](docs/screenshots/channel-details.jpg) | [<img src="docs/screenshots/control-center.jpg" width="430" alt="在控制中心管理播放画面、开机和 M3U 订阅">](docs/screenshots/control-center.jpg) |
-| 可手动切源、测速或查看上次失败原因。 | 管理 M3U/HLS 导入、节目单、选路与开机恢复。 |
+| [<img src="docs/screenshots/channel-details.jpg" width="430" alt="频道详情中的收藏、节目、线路与首帧结果">](docs/screenshots/channel-details.jpg) | [<img src="docs/screenshots/control-center.jpg" width="430" alt="在设置页面管理播放画面、开机和 M3U 订阅">](docs/screenshots/control-center.jpg) |
+| 就地切换备用线路、手动测速或加入收藏。 | 左侧抽屉同栏管理 M3U/HLS 导入、节目单、长辈字号与开机恢复。 |
 
 <sub>界面预览图采自模拟器测试环境，演示视频素材来自 NASA SVS <a href="https://svs.gsfc.nasa.gov/30180/">30180</a>。</sub>
 
 ## 安装与导入
 
-1. **安装到电视**：下载 [SwiftTV-0.4.3.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.3/SwiftTV-0.4.3.apk)（校验见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.3/SHA256SUMS.txt)）用 U 盘安装，或在手机安装同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.3.apk`)** 通过局域网无线推送安装。
-2. **首次启动配对导源**：首次打开 SwiftTV 且尚未导入频道时，界面会直接显示**手机配对二维码**与左侧快速入口（`手动输入地址` / `本地文件` / `控制中心`）。
+1. **安装到电视**：下载 [SwiftTV-0.4.4.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk)（校验见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SHA256SUMS.txt)）用 U 盘安装，或在手机安装同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.4.apk`)** 通过局域网无线推送安装。
+2. **首次启动配对导源**：首次打开 SwiftTV 且尚未导入频道时，界面会直接显示**手机配对二维码**与左侧快速入口（`手动输入地址` / `本地文件` / `更多设置`）。
 3. **手机推送直播源（推荐）**：
    - **方式 A（手机浏览器扫码）**：手机与电视在同一 Wi‑Fi 下扫一扫屏幕二维码，可输入远程 `.m3u` / 单频道 `.m3u8` 链接、或直接上传手机本地 `.m3u/.m3u8` 文件并点击发送，电视端按 OK 确认预览即可播放。
    - **方式 B（安装助手 1.1.0 一键推送）**：在手机安装助手中连接电视后，直接在「推送直播源到电视」卡片粘贴 `.m3u` / `.m3u8` 链接或选择手机本地文件，一键发送到电视端弹出确认窗。
@@ -76,11 +76,11 @@ https://morangse.github.io/iptvtest/
 
 ## 手机端局域网安装与推源助手
 
-仓库内的 [`installer/`](installer/) 是一个独立的 Android 手机伴侣应用（`SwiftTV 安装助手 1.1.3`），用于在无 U 盘环境下通过局域网 ADB 安装 SwiftTV 并推送直播源：
+仓库内的 [`installer/`](installer/) 是一个独立的 Android 手机伴侣应用（`SwiftTV 安装助手 1.1.4`），用于在无 U 盘环境下通过局域网 ADB 安装 SwiftTV 并推送直播源：
 
 - 自动扫描同网段 `5555` 端口，并通过 mDNS 发现 Android 11+ 无线调试设备
 - 支持手动 IP、授权弹窗自动重试、6 位配对码（SPAKE2 + Conscrypt），以及签名冲突卸载重装
-- 内置 `SwiftTV 0.4.3` 安装包，也支持在手机上选择其他本地 APK
+- 内置 `SwiftTV 0.4.4` 安装包，也支持在手机上选择其他本地 APK
 - **1.1.0 新增推源能力**：在手机上粘贴 M3U 订阅 / 单频道 `.m3u8` 链接（可选列表名与 EPG）或挑选本地 `.m3u/.m3u8` 文件（内置随机一次性令牌 LAN 短暂托管），一键唤起电视端确认导入
 
 构建方式（独立 Gradle 工程）：
@@ -96,16 +96,17 @@ cd installer
 
 | 当前界面 | 操作 | 效果 |
 | :--- | :--- | :--- |
-| 全屏播放 | <kbd>↑</kbd> / <kbd>↓</kbd> 或频道加减键 | 换台（默认 <kbd>↓</kbd> 下一个、<kbd>↑</kbd> 上一个，可在控制中心反转；支持 4 挡长辈大字） |
-| 全屏播放 | <kbd>OK</kbd>，或点按画面 | 打开频道画廊 |
-| 全屏播放 | <kbd>→</kbd> 或菜单键 | 打开线路与收藏 |
-| 全屏播放 | 数字键 | 按画廊中的频道序号换台 |
-| 频道画廊 | 方向键，随后按 <kbd>OK</kbd> | 选择分组或频道，确认后播放 |
-| 任意菜单 | 返回键 | 返回上一级或关闭菜单 |
+| 全屏播放 | <kbd>↑</kbd> / <kbd>↓</kbd> 或频道加减键 | 换台（默认 <kbd>↓</kbd> 下一个、<kbd>↑</kbd> 上一个，可在设置中反转；支持 4 挡长辈大字） |
+| 全屏播放 | <kbd>OK</kbd> / <kbd>←</kbd>，或点按画面 | 打开左侧双栏频道抽屉 |
+| 全屏播放 | <kbd>→</kbd> | 打开当前频道线路与收藏详情 |
+| 全屏播放 | <kbd>菜单</kbd> | 一键直达抽屉「设置」页或收起设置 |
+| 全屏播放 | 数字键 | 按统一全局频道序号换台 |
+| 频道抽屉 | 方向键 / 翻页键 / <kbd>0</kbd> | 选择分组或频道、快速翻页、<kbd>0</kbd> 定位在播频道；按 <kbd>→</kbd> 同栏查看线路与收藏 |
+| 任意菜单 | 返回键，或点按抽屉外空白区域 | 返回上一级或关闭菜单 |
 
 ## 设备与从源码构建
 
-最低支持 **Android TV 6.0（API 23）**，4K / HEVC 解码与实际画面表现取决于电视硬件能力，可在「控制中心 → 本机硬件解码能力」查看检测结果。
+最低支持 **Android TV 6.0（API 23）**，4K / HEVC 解码与实际画面表现取决于电视硬件能力，可在「设置 → 本机硬件解码能力」查看检测结果。
 
 构建需要 JDK 17、Android SDK Platform 36 与 Build Tools 36：
 

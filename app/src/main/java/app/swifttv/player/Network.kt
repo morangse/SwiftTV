@@ -48,6 +48,13 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
         .callTimeout(2500, TimeUnit.MILLISECONDS)
         .build()
 
+    // Dedicated bounded fast client for channel logo downloads so dead hosts never stall UI scrolling.
+    private val logoClient = client.newBuilder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(4, TimeUnit.SECONDS)
+        .callTimeout(6, TimeUnit.SECONDS)
+        .build()
+
     fun download(url: String, etag: String = "", lastModified: String = ""): Download {
         httpUri(url)
         val request = Request.Builder().url(url).header("User-Agent", USER_AGENT)
@@ -109,15 +116,19 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
         }
     }
 
-    /** Downloads a bounded channel logo image (<= 512 KiB), with automatic jsDelivr mirror fallback for GitHub URLs. */
-    fun downloadLogoBytes(url: String, maxBytes: Int = 512 * 1024): ByteArray {
-        val candidates = logoCandidates(url)
+    /** Downloads a bounded channel logo image (<= 512 KiB), with automatic jsDelivr mirror & proxy unwrap fallback. */
+    fun downloadLogoBytes(url: String, maxBytes: Int = 512 * 1024): ByteArray =
+        downloadFirstLogoBytes(logoCandidates(url), maxBytes)
+
+    /** Downloads the first reachable logo image from an ordered candidate list under strict timeouts. */
+    fun downloadFirstLogoBytes(candidates: List<String>, maxBytes: Int = 512 * 1024): ByteArray {
         var lastError: Exception? = null
         for (target in candidates) {
             try {
-                httpUri(target)
-                val req = Request.Builder().url(target).header("User-Agent", USER_AGENT).build()
-                requestClient.newCall(req).execute().use { resp ->
+                val encoded = encodeHttpUrl(target)
+                httpUri(encoded)
+                val req = Request.Builder().url(encoded).header("User-Agent", USER_AGENT).build()
+                logoClient.newCall(req).execute().use { resp ->
                     require(resp.isSuccessful) { "Logo HTTP " + resp.code }
                     val body = resp.body ?: error("Empty logo")
                     require(body.contentLength() <= maxBytes) { "Logo too large" }
@@ -378,21 +389,69 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
             return ImportErrorInfo(raw, relayEligible = relay)
         }
 
+        private val githubProxyPrefix = Regex(
+            "^https?://(?:[\\w.-]*ghproxy[\\w.-]*|gh\\.aptv\\.app|ghfast\\.top|gh-proxy\\.com|hk\\.gh-proxy\\.com)/(?:https?://)?(.*)$",
+            RegexOption.IGNORE_CASE
+        )
+
         internal fun logoCandidates(url: String): List<String> {
-            val trimmed = url.trim()
-            val list = mutableListOf(trimmed)
-            val ghPages = Regex("^https?://([\\w-]+)\\.github\\.io/([\\w.-]+)/(.*)$", RegexOption.IGNORE_CASE).matchEntire(trimmed)
-            if (ghPages != null) {
-                val (owner, repo, rest) = ghPages.destructured
-                list += "https://cdn.jsdelivr.net/gh/$owner/$repo@main/public/$rest"
-                list += "https://cdn.jsdelivr.net/gh/$owner/$repo@main/$rest"
+            val encoded = encodeHttpUrl(url)
+            if (encoded.isEmpty()) return emptyList()
+            val list = linkedSetOf<String>()
+
+            // Unwrap GitHub proxy wrappers (e.g. ghproxy.net/raw.githubusercontent.com/...) -> prioritize fast jsDelivr CDN
+            val proxyMatch = githubProxyPrefix.matchEntire(encoded)
+            val unwrapped = proxyMatch?.groupValues?.getOrNull(1)?.let { rest ->
+                if (rest.startsWith("http://", true) || rest.startsWith("https://", true)) rest else "https://$rest"
             }
-            val ghRaw = Regex("^https?://raw\\.githubusercontent\\.com/([\\w-]+)/([\\w.-]+)/([\\w.-]+)/(.*)$", RegexOption.IGNORE_CASE).matchEntire(trimmed)
-            if (ghRaw != null) {
-                val (owner, repo, branch, rest) = ghRaw.destructured
-                list += "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$rest"
+
+            fun appendMirrors(target: String) {
+                val ghPages = Regex("^https?://([\\w-]+)\\.github\\.io/([\\w.-]+)/(.*)$", RegexOption.IGNORE_CASE).matchEntire(target)
+                if (ghPages != null) {
+                    val (owner, repo, rest) = ghPages.destructured
+                    list += "https://cdn.jsdelivr.net/gh/$owner/$repo@main/public/$rest"
+                    list += "https://cdn.jsdelivr.net/gh/$owner/$repo@main/$rest"
+                }
+                val ghRaw = Regex("^https?://raw\\.githubusercontent\\.com/([\\w-]+)/([\\w.-]+)/([\\w.-]+)/(.*)$", RegexOption.IGNORE_CASE).matchEntire(target)
+                if (ghRaw != null) {
+                    val (owner, repo, branch, rest) = ghRaw.destructured
+                    list += "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$rest"
+                }
+                val ghRepoRaw = Regex("^https?://github\\.com/([\\w-]+)/([\\w.-]+)/raw/([\\w.-]+)/(.*)$", RegexOption.IGNORE_CASE).matchEntire(target)
+                if (ghRepoRaw != null) {
+                    val (owner, repo, branch, rest) = ghRepoRaw.destructured
+                    list += "https://cdn.jsdelivr.net/gh/$owner/$repo@$branch/$rest"
+                }
+                val fanmingming = Regex("^https?://live\\.fanmingming\\.cn/tv/(.*)$", RegexOption.IGNORE_CASE).matchEntire(target)
+                if (fanmingming != null) {
+                    val rest = fanmingming.groupValues[1]
+                    list += "https://cdn.jsdelivr.net/gh/fanmingming/live@main/tv/$rest"
+                }
             }
-            return list.distinct()
+
+            if (unwrapped != null) {
+                appendMirrors(unwrapped)
+                list += encoded
+                list += unwrapped
+            } else {
+                list += encoded
+                appendMirrors(encoded)
+            }
+            return list.toList()
+        }
+
+        /** Public CDN fallback logo URLs for channels without a bundled asset or working tvg-logo. */
+        internal fun publicLogoFallbackCandidates(cleanNames: List<String>): List<String> {
+            val out = linkedSetOf<String>()
+            for (raw in cleanNames.take(2)) {
+                val name = raw.trim()
+                if (name.length < 2 || name.length > 24) continue
+                val file = encodeHttpUrl("$name.png")
+                out += "https://cdn.jsdelivr.net/gh/fanmingming/live@main/tv/$file"
+                out += "https://live.fanmingming.cn/tv/$file"
+                out += "https://epg.112114.xyz/logo/$file"
+            }
+            return out.toList()
         }
 
         internal fun streamMime(bytes: ByteArray, size: Int): String? {

@@ -1,0 +1,20 @@
+Third-party channel identification artwork
+
+Source: fanmingming/live
+Revision: eaf218417af393ccd0a16f2f916a0aadd019f1f1
+https://github.com/fanmingming/live/tree/eaf218417af393ccd0a16f2f916a0aadd019f1f1/tv
+Upstream license declaration: GNU General Public License v3.
+The complete upstream license is in LICENSE-fanmingming-live.txt.
+
+These files are third-party artwork, not SwiftTV original artwork and not
+covered by the Apache-2.0 license for SwiftTV's own code.
+Channel names, logos and trademarks belong to their respective rights holders.
+Use identifies channels; it does not imply affiliation, endorsement or sponsorship.
+The upstream repository's license does not establish separate permission from
+every broadcaster for all copyright or trademark uses.
+
+Changes made on 2026-11-17: crop fully transparent outer padding, proportional
+downscale to at most 192x64 px, and lossless WebP encoding. No recoloring or
+redrawing. Original PNG files, fixed source URLs, hashes, upstream README,
+license and conversion scripts accompany the SwiftTV source archive under
+docs/research/2026-11-17/channel-logos/. See docs/CHANNEL_LOGOS.md for details.

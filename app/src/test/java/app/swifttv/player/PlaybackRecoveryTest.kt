@@ -56,8 +56,8 @@ class PlaybackRecoveryTest {
     }
 
     @Test fun fastFailoverTimeoutsAndExponentialCooldownAreBounded() {
-        assertEquals(3_500L, PlaybackRecoveryPolicy.NO_TRACK_TIMEOUT_MS)
-        assertEquals(7_500L, PlaybackRecoveryPolicy.FIRST_FRAME_TIMEOUT_MS)
+        assertEquals(5_500L, PlaybackRecoveryPolicy.NO_TRACK_TIMEOUT_MS)
+        assertEquals(9_500L, PlaybackRecoveryPolicy.FIRST_FRAME_TIMEOUT_MS)
         assertEquals(5_000L, PlaybackRecoveryPolicy.REBUFFER_TIMEOUT_MS)
         assertEquals(6_000L, PlaybackRecoveryPolicy.NO_PROGRESS_TIMEOUT_MS)
         assertEquals(120_000L, PlaybackRecoveryPolicy.cooldownMs(1))
@@ -67,6 +67,9 @@ class PlaybackRecoveryTest {
         assertEquals(PlaybackRecoveryPolicy.UDP_NO_TRACK_TIMEOUT_MS, PlaybackRecoveryPolicy.noTrackTimeoutMs("udp://239.1.1.1:5000"))
         assertEquals(PlaybackRecoveryPolicy.UDP_FIRST_FRAME_TIMEOUT_MS, PlaybackRecoveryPolicy.firstFrameTimeoutMs("http://192.168.1.1:4022/rtp/239.1.1.1:5000"))
         assertEquals(PlaybackRecoveryPolicy.NO_TRACK_TIMEOUT_MS, PlaybackRecoveryPolicy.noTrackTimeoutMs("https://cdn.example/live.m3u8"))
+        assertTrue(PlaybackRecoveryPolicy.shouldAutoReconnectOnStartupTimeout(probing = false, startupReconnects = 0))
+        assertFalse(PlaybackRecoveryPolicy.shouldAutoReconnectOnStartupTimeout(probing = false, startupReconnects = 1))
+        assertFalse(PlaybackRecoveryPolicy.shouldAutoReconnectOnStartupTimeout(probing = true, startupReconnects = 0))
     }
 
     @Test fun rtpPacketExtractsCleanMpegTsPayloadAndPassesRawTsThrough() {

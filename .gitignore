@@ -12,7 +12,7 @@ __pycache__/
 *.pyc
 *.zip
 *.apk
-!installer/app/src/main/assets/swifttv-0.4.3.apk
+!installer/app/src/main/assets/swifttv-0.4.4.apk
 *.aab
 *.pfx
 *.pem

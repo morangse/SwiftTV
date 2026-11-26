@@ -97,7 +97,7 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(20), dp(14), dp(22), dp(14))
-        minimumWidth = dp((380f * (1f + 0.32f * (TvStyle.fontScale(context) - 1f).coerceAtLeast(0f))).toInt())
+        minimumWidth = dp((450f * (1f + 0.32f * (TvStyle.fontScale(context) - 1f).coerceAtLeast(0f))).toInt())
         elevation = dp(8).toFloat()
         visibility = GONE
 

@@ -5,7 +5,7 @@ import androidx.core.content.edit
 import java.util.Locale
 
 enum class RoutingMode(val key: String, val title: String) {
-    AUTO("auto", "智能选路（推荐）"),
+    AUTO("auto", "自动择优"),
     IPV6_FIRST("ipv6_first", "IPv6 优先"),
     IPV4_FIRST("ipv4_first", "IPv4 优先"),
     PLAYBACK_HISTORY("playback_history", "仅按实测排序");

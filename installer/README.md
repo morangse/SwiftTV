@@ -3,14 +3,14 @@
 一个 Android 手机端的小工具：在同一个局域网内发现电视，通过 ADB 把内置的 SwiftTV 安装包推到电视上并安装。
 
 - 应用包名：`app.swifttv.installer`
-- 版本：1.1.1（versionCode 4）
+- 版本：1.1.4（versionCode 7）
 - 最低手机系统：Android 8.0（API 26）
-- 内置安装包：`app/src/main/assets/swifttv-0.4.1.apk`（与 SwiftTV 0.4.1 公开发行包一致）
+- 内置安装包：`app/src/main/assets/swifttv-0.4.4.apk`（与 SwiftTV 0.4.4 公开发行包一致）
 - 图标：复用 SwiftTV 品牌图，已生成各密度启动图标与 Android 13 单色图标
 
 ## 目录与构建产物
 
-- `app/src/main/assets/swifttv-0.4.1.apk`：内置的 SwiftTV 安装包
+- `app/src/main/assets/swifttv-0.4.4.apk`：内置的 SwiftTV 安装包
 - `app/src/main/java/app/swifttv/installer/`：应用源码
 - `app/build/outputs/apk/release/app-release.apk`：构建后的 release APK（不入库）
 - `app/build/outputs/apk/debug/app-debug.apk`：构建后的 debug APK（不入库）
@@ -48,7 +48,7 @@
    - 安装成功后可自动通过 `monkey` 或 `am start` 打开 SwiftTV。
 
 6. **安装包管理**
-   - 默认使用内置 SwiftTV 0.4.1。
+   - 默认使用内置 SwiftTV 0.4.4。
    - 可通过系统文件选择器更换本地 APK；会读取包名、版本、图标和大小，并提示所选包是否不是 SwiftTV。
 
 7. **推送直播源到电视（1.1.0 新增）**
@@ -122,7 +122,7 @@ release 当前使用 debug 签名，目的是让构建出的 APK 可以直接侧
   - `BrandHintsTest` 4 个：品牌识别与电视特征
   - `KadbIdentityTest` 1 个：Kadb 生成并持久化 ADB 私钥/证书
 - 运行时依赖核查：release dex 中包含 `com.flyfishxu.kadb`、`com.flyfish233.crypto.spake2`、`org.conscrypt.OpenSSLProvider`、BouncyCastle
-- 内置 APK 校验：与 SwiftTV 0.3.3 公开发行包的 SHA-256 完全一致
+- 内置 APK 校验：与 SwiftTV 0.4.4 公开发行包的 SHA-256 完全一致（`29534b6b730682a407281dcf6ec5fb7d1c0c90cec5822b8b23713b01b2d71c29`）
 - 未在真实电视上做端到端安装测试（当前环境没有可连接的电视）；首次使用请按上面的电视端步骤操作
 
 ## 已知限制

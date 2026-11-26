@@ -83,9 +83,37 @@ object CatalogSelection {
 fun sourceId(url: String): String = MessageDigest.getInstance("SHA-256")
     .digest(url.toByteArray(Charsets.UTF_8)).take(12).joinToString("") { "%02x".format(it) }
 
+fun encodeHttpUrl(value: String): String {
+    val trimmed = value.trim()
+    if (trimmed.isEmpty()) return trimmed
+    val sb = StringBuilder(trimmed.length + 16)
+    var i = 0
+    while (i < trimmed.length) {
+        val ch = trimmed[i]
+        val code = ch.code
+        when {
+            ch == '%' && i + 2 < trimmed.length && trimmed[i + 1].isHexDigit() && trimmed[i + 2].isHexDigit() -> {
+                sb.append(ch).append(trimmed[i + 1]).append(trimmed[i + 2])
+                i += 3
+                continue
+            }
+            code in 0x21..0x7E && ch !in "<>\"{}|\\^`[]" -> sb.append(ch)
+            else -> {
+                for (b in ch.toString().toByteArray(Charsets.UTF_8)) {
+                    sb.append('%').append("%02X".format(b.toInt() and 0xFF))
+                }
+            }
+        }
+        i++
+    }
+    return sb.toString()
+}
+
+private fun Char.isHexDigit(): Boolean = this in '0'..'9' || this in 'a'..'f' || this in 'A'..'F'
+
 fun httpUri(value: String): URI {
     require(value.length <= 8192 && value.none { it <= '\u001f' }) { "线路地址包含无效字符" }
-    val uri = URI(value.trim())
+    val uri = URI(encodeHttpUrl(value))
     require(uri.scheme?.lowercase(Locale.ROOT) in listOf("http", "https") && !uri.host.isNullOrBlank()) {
         "只支持 HTTP 或 HTTPS 地址"
     }
@@ -465,7 +493,7 @@ object M3uParser {
                     } else {
                         val identity = ChannelIdentity.resolve(meta["tvg-id"].orEmpty(), meta["tvg-name"].orEmpty().ifBlank { name })
                         val rawLogo = meta["tvg-logo"].orEmpty().trim()
-                        val validLogo = if (rawLogo.isNotEmpty() && runCatching { httpUri(rawLogo) }.isSuccess) rawLogo else ""
+                        val validLogo = if (rawLogo.isNotEmpty() && runCatching { httpUri(rawLogo) }.isSuccess) encodeHttpUrl(rawLogo) else ""
                         val group = meta["group-title"].orEmpty().ifBlank { currentExtGrp }.ifBlank { "其他频道" }
                         val mergedHeaders = LinkedHashMap(headers).apply { putAll(parsedUrl.headers) }
                         result += Entry(

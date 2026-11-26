@@ -70,14 +70,19 @@ enum class RecoveryAction { RESYNC_LIVE_EDGE, RECONNECT_SAME_SOURCE, FAIL_AND_CO
 object PlaybackRecoveryPolicy {
     const val MAX_LIVE_EDGE_RESYNCS = 2
     const val MAX_TRANSIENT_RECONNECTS = 1
+    const val MAX_STARTUP_RECONNECTS = 1
     const val MIN_SUSTAINED_MS_FOR_RECONNECT = 10_000L
     const val RECONNECT_DELAY_MS = 800L
-    const val NO_TRACK_TIMEOUT_MS = 3_500L
-    const val FIRST_FRAME_TIMEOUT_MS = 7_500L
-    const val UDP_NO_TRACK_TIMEOUT_MS = 6_000L
-    const val UDP_FIRST_FRAME_TIMEOUT_MS = 10_000L
+    const val STARTUP_RECONNECT_DELAY_MS = 350L
+    const val NO_TRACK_TIMEOUT_MS = 5_500L
+    const val FIRST_FRAME_TIMEOUT_MS = 9_500L
+    const val UDP_NO_TRACK_TIMEOUT_MS = 7_500L
+    const val UDP_FIRST_FRAME_TIMEOUT_MS = 12_000L
     const val REBUFFER_TIMEOUT_MS = 5_000L
     const val NO_PROGRESS_TIMEOUT_MS = 6_000L
+
+    fun shouldAutoReconnectOnStartupTimeout(probing: Boolean, startupReconnects: Int): Boolean =
+        !probing && startupReconnects < MAX_STARTUP_RECONNECTS
 
     fun isLongStartupStream(url: String, mime: String? = null): Boolean {
         val lower = url.lowercase(java.util.Locale.ROOT)
@@ -212,6 +217,7 @@ class PlaybackController(
     private var attemptPlayedMs = 0L
     private var liveEdgeResyncs = 0
     private var transientReconnects = 0
+    private var startupReconnects = 0
     private var lastTick = 0L
     private var lastPosition = 0L
     private var noProgressAt = 0L
@@ -385,12 +391,14 @@ class PlaybackController(
             finishSource()
             liveEdgeResyncs = 0
             transientReconnects = 0
+            startupReconnects = 0
             attemptPlayedMs = 0L
         } else {
             sniffCall?.cancel(); sniffCall = null
             flush()
         }
         player.stop()
+        player.clearMediaItems()
         player.playWhenReady = true
         entry = next
         if (!probing) startupSourceCheck?.attempting()
@@ -452,6 +460,10 @@ class PlaybackController(
     }
 
     private fun prepare(next: Entry, mime: String) {
+        val now = SystemClock.elapsedRealtime()
+        sourceStartedAt = now
+        bufferingAt = now
+        noProgressAt = now
         val scheme = SourceRoutes.schemeOf(next.url)
         val itemBuilder = MediaItem.Builder().setUri(next.url).setMediaId(switchId)
         if (mime.isNotEmpty()) itemBuilder.setMimeType(mime)
@@ -472,6 +484,24 @@ class PlaybackController(
         player.setMediaSource(mediaSource)
         player.prepare()
         player.playWhenReady = true
+    }
+
+    private fun scheduleStartupAutoReconnect(reason: String) {
+        val active = entry ?: return
+        startupReconnects++
+        val expectedChannelId = current?.id
+        Log.i("SwiftTVMetric", "startup_auto_reconnect source=" + sourceId(active.url) + " attempt=$startupReconnects reason=" + DiagnosticRedaction.message(reason))
+        sniffCall?.cancel(); sniffCall = null
+        player.stop()
+        player.clearMediaItems()
+        callback.onStatus(current, "首次连接超时，正在自动重连…")
+        pendingReconnect = Runnable {
+            pendingReconnect = null
+            if (!closed && current?.id == expectedChannelId && entry?.url == active.url) {
+                requestedAt = SystemClock.elapsedRealtime()
+                startSource(active, resetRecoveryBudget = false)
+            }
+        }.also { handler.postDelayed(it, PlaybackRecoveryPolicy.STARTUP_RECONNECT_DELAY_MS) }
     }
 
     private fun recoverOrFail(error: PlaybackException?, message: String) {
@@ -556,7 +586,12 @@ class PlaybackController(
                     PlaybackRecoveryPolicy.noTrackTimeoutMs(activeUrl, activeMime)
                 }
                 if (!firstFrame && now - sourceStartedAt >= firstFrameLimitMs) {
-                    fail(if (lastFormat != null) "未渲染视频首帧（超时）" else "未检测到有效音视频流（超时）")
+                    val timeoutMsg = if (lastFormat != null) "未渲染视频首帧（超时）" else "未检测到有效音视频流（超时）"
+                    if (PlaybackRecoveryPolicy.shouldAutoReconnectOnStartupTimeout(probing, startupReconnects)) {
+                        scheduleStartupAutoReconnect(timeoutMsg)
+                    } else {
+                        fail(timeoutMsg)
+                    }
                 } else if (bufferingAt > 0 && now - bufferingAt >= PlaybackRecoveryPolicy.REBUFFER_TIMEOUT_MS) {
                     recoverOrFail(null, "持续缓冲超过五秒")
                 } else if (firstFrame && player.isPlaying && now - noProgressAt >= PlaybackRecoveryPolicy.NO_PROGRESS_TIMEOUT_MS) {

@@ -231,9 +231,9 @@ object StartupRuntime {
         .put("backgroundWindowPermission", overlayAllowed(c)).put("attempts", read(c).attempts)
         .put("lastResult", prefs(c).getString("result", "尚无自动启动记录"))
         .put("lastResultAt", prefs(c).getLong("resultAt", 0)).put("physicalDeviceValidation", "untested")
-    fun settingLabel(c: Context): String = if (!enabled(c)) "开机自动看直播：关闭"
-        else if (Build.VERSION.SDK_INT >= 29 && !guardEnabled(c) && !overlayAllowed(c)) "开机自动看直播：开启 · 待系统授权"
-        else "开机自动看直播：开启"
+    fun settingLabel(c: Context): String = if (!enabled(c)) "已关闭"
+        else if (Build.VERSION.SDK_INT >= 29 && !guardEnabled(c) && !overlayAllowed(c)) "已开启 · 待系统授权"
+        else "已开启"
     fun summary(c: Context): String = "自动启动：" + (if (enabled(c)) "开启（默认）" else "关闭") +
         "\n开机助手：" + (if (guardEnabled(c)) "已授权" else "待授权") +
         "\n后台弹出界面：" + (if (overlayAllowed(c)) "无需额外授权或已允许" else "待允许（Android 10 及以上可能需要）") +

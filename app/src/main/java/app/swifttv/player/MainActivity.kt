@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private val menuHistory = mutableListOf<MenuPage>()
     private var restoringMenu = false
     private var optionsChannelId: String? = null
+    private var lastSettingsTab = 0
     private var overlayGeneration = 0
     private var closingOverlay = false
     private var consumeOpeningConfirm = false
@@ -190,8 +191,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         root.addView(modalHost, FrameLayout.LayoutParams(-1, -1))
 
         toastBanner = CinemaToastBanner(this, blurEngine)
-        root.addView(toastBanner, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-            topMargin = dp(24); leftMargin = dp(40); rightMargin = dp(40)
+        root.addView(toastBanner, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(24); leftMargin = dp(32); rightMargin = dp(32)
         })
 
         setContentView(root)
@@ -377,6 +378,10 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
     private fun sheet(eyebrow: String, title: String, subtitle: String = "", mode: String, anchoredRight: Boolean = false): CinemaSheetView {
         beginOverlay(mode)
+        if (mode != "probe") {
+            overlay.isClickable = true
+            overlay.setOnClickListener { backThroughMenus() }
+        }
         return CinemaSheetView(this, blurEngine, eyebrow, title, subtitle, anchoredRight = anchoredRight, onBackClick = { backThroughMenus() }).also { panel ->
             overlay.addView(panel)
             panel.appear()
@@ -391,6 +396,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
         overlayGeneration++; closingOverlay = false
         ribbon?.cancelMotion(); closeSession()
+        overlay.setOnClickListener(null)
+        overlay.isClickable = false
         overlay.removeAllViews(); overlay.visibility = View.VISIBLE; overlayMode = mode
         hud.visibility = View.GONE
         blurEngine.syncState()
@@ -403,7 +410,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         val finished = {
             if (generation == overlayGeneration) {
                 overlayGeneration++
-                closeSession(); overlay.visibility = View.GONE; overlay.removeAllViews(); overlayMode = ""
+                closeSession(); overlay.setOnClickListener(null); overlay.isClickable = false
+                overlay.visibility = View.GONE; overlay.removeAllViews(); overlayMode = ""
                 menuHistory.clear(); closingOverlay = false; probeLabel = null
                 landing.visibility = if (availableChannels().isEmpty()) View.VISIBLE else View.GONE
                 if (landing.isVisible) landing.findViewById<View>(View.NO_ID) ?: (landing.getChildAt(0) as? ViewGroup)?.let { g ->
@@ -422,14 +430,30 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         } else { ribbon?.cancelMotion(); finished() }
     }
 
-    private fun showChannels(restore: Boolean = false) {
-        val channels = availableChannels()
-        if (channels.isEmpty()) { showSettings(); return }
-        if (overlayMode == "channels" && overlay.isVisible && !closingOverlay) {
-            ribbon?.updateCatalog(channels, store.snapshot().favorites); return
-        }
-        beginOverlay("channels")
-        val view = ribbon ?: CinemaRibbonView(this, artwork, blurEngine, object : CinemaRibbonView.Actions {
+    private fun buildSettingsModel(): CinemaRibbonView.SettingsModel {
+        val snap = store.snapshot()
+        return CinemaRibbonView.SettingsModel(
+            versionName = BuildConfig.VERSION_NAME,
+            subscriptionCount = snap.subscriptions.size,
+            totalChannels = availableChannels().size,
+            currentGroup = group,
+            routingLabel = routingLabel(),
+            switchDirectionLabel = switchDirectionLabel(),
+            startupLabel = StartupRuntime.settingLabel(this),
+            fontScaleMode = TvStyle.fontScaleMode(this),
+            lightweight = TvStyle.lightweight(this),
+            smartLogoLookup = TvStyle.smartLogoLookup(this),
+            customEpgUrl = snap.customEpgUrl,
+            supports4kHevc50 = codecProfile.supports4kHevc50,
+            logoCacheBytes = artwork.cacheSizeBytes()
+        )
+    }
+
+    private fun obtainRibbon(): CinemaRibbonView = ribbon ?: CinemaRibbonView(
+        context = this,
+        artwork = artwork,
+        blurEngine = blurEngine,
+        actions = object : CinemaRibbonView.Actions {
             override fun play(channel: Channel) {
                 if (channel.sources.isEmpty()) {
                     val reason = channel.unavailableReason.ifEmpty { "暂缺适合本机的已验证线路" }
@@ -447,12 +471,193 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 channelCursor = -1
                 lastZapAtMs = 0L
             }
-        }, group, scheduleFor = { id -> epg.scheduleFor(id)?.current }).also { ribbon = it }
+        },
+        initialGroup = group,
+        scheduleFor = { id -> epg.scheduleFor(id)?.current },
+        settingsModelProvider = { buildSettingsModel() },
+        settingsActions = object : CinemaRibbonView.SettingsActions {
+            override fun onOpenQrPairing() { showPairing() }
+            override fun onOpenManualUrl() { manualImport() }
+            override fun onOpenLocalFile() {
+                StartupRuntime.beginInternalSystemFlow()
+                try { openDocumentLauncher.launch(arrayOf("*/*")) }
+                catch (_: Exception) { toast("这台电视未提供文件选择器，请使用手机扫码或安装助手导入") }
+            }
+            override fun onSelectFontScale(mode: FontScaleMode) {
+                if (TvStyle.fontScaleMode(this@MainActivity) == mode) return
+                val targetKey = "font:${mode.key}"
+                TvStyle.setFontScaleMode(this@MainActivity, mode)
+                rebuildChromeForFontScale()
+                restoringMenu = true
+                try { showSettings(focusRight = true, skipAppear = true, focusKey = targetKey) } finally { restoringMenu = false }
+                toast("界面字号已切换为「${mode.title}」")
+            }
+            override fun onToggleLightweight(): Boolean {
+                val nextLight = !TvStyle.lightweight(this@MainActivity)
+                TvStyle.setLightweight(this@MainActivity, nextLight)
+                hud.refreshSurface()
+                numberOsd.refreshSurface()
+                blurEngine.syncState()
+                return nextLight
+            }
+            override fun onToggleSmartLogoLookup(): Boolean {
+                val next = !TvStyle.smartLogoLookup(this@MainActivity)
+                TvStyle.setSmartLogoLookup(this@MainActivity, next)
+                ribbon?.refreshPrograms()
+                toast(if (next) "已开启智能台标识别" else "已关闭在线台标兜底")
+                return next
+            }
+            override fun onCycleRouting(): String {
+                RoutingMode.save(this@MainActivity, RoutingMode.read(this@MainActivity).next())
+                availableChannels().firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it) }
+                return routingLabel()
+            }
+            override fun onCycleSwitchDirection(): String {
+                ChannelSwitchDirection.save(this@MainActivity, ChannelSwitchDirection.read(this@MainActivity).next())
+                return switchDirectionLabel()
+            }
+            override fun onOpenStartupSettings() { showStartupSettings() }
+            override fun onShowHardwareInfo() {
+                val note = if (codecProfile.supports4kHevc50) "检测到 4K HEVC 硬件解码能力。实际播放由线路与设备决定。"
+                else "优先选择 1080p H.264/AAC 线路。"
+                showModal("本机解码能力", note, primaryLabel = "关闭", secondaryLabel = null) { true }
+            }
+            override fun onRefreshAll() {
+                refreshSubscriptions(true)
+                refreshEpg(true)
+            }
+            override fun onOpenSubscriptions() { showSubscriptions() }
+            override fun onConfigureEpg() { configureEpgDialog() }
+            override fun onProbeCurrentGroup() {
+                val selected = availableChannels().filter {
+                    it.sources.isNotEmpty() && (group == "全部" || (group == "收藏" && it.id in store.snapshot().favorites) || it.group == group)
+                }
+                if (selected.isNotEmpty()) startProbe(selected) else toast("当前分类没有可测线路")
+            }
+            override fun onExportDiagnostics() { showPairing(export = true) }
+            override fun onClearLogoCache(): Long {
+                val freed = artwork.clearCache()
+                ribbon?.updateCatalog(availableChannels(), store.snapshot().favorites)
+                toast("已清理台标缓存")
+                return freed
+            }
+            override fun onShowAboutInfo() {
+                val guide = "遥控器快捷指南：\n" +
+                    "· 确认键 / 左键：打开左侧频道与设置抽屉\n" +
+                    "· 频道行按右键：就地收藏、重连或切换线路\n" +
+                    "· 频道列表中按 0：快速定位到当前在播频道\n" +
+                    "· 菜单键：一键直达设置或关闭抽屉\n" +
+                    "· 翻页键 / CH±：快速翻页浏览长频道列表"
+                showModal(
+                    title = "关于 SwiftTV ${BuildConfig.VERSION_NAME}",
+                    message = guide,
+                    primaryLabel = "关闭",
+                    secondaryLabel = null,
+                    extraLabel = "开源许可",
+                    onExtra = { showLicenseModal() }
+                ) { true }
+            }
+        },
+        inspectorActions = object : CinemaRibbonView.InspectorActions {
+            override fun buildModel(channel: Channel): CinemaRibbonView.InspectorModel {
+                optionsChannelId = channel.id
+                val spec = if (controller?.current?.id == channel.id) controller?.streamSpec?.badge().orEmpty() else ""
+                val schedule = epg.scheduleFor(channel.id)?.current?.title?.let { "正在播出：$it" }
+                val specSummary = listOfNotNull(spec.takeIf { it.isNotEmpty() }, schedule).joinToString(" · ")
+                val prevId = controller?.previousChannelId
+                val prevChannel = if (prevId != null && prevId != channel.id) {
+                    availableChannels().firstOrNull { it.id == prevId && it.sources.isNotEmpty() }
+                } else null
+                val stats = store.snapshot().stats
+                val routes = channel.sources.mapIndexed { index, source ->
+                    val stat = stats[sourceId(source.url)]
+                    val (health, dotColor) = when {
+                        stat == null -> "尚未在本机实测" to TvStyle.subtle
+                        stat.lastOutcome == "connecting" -> "正在连接…" to TvStyle.porcelain
+                        stat.error.isNotBlank() -> ("上次异常 · " + stat.error.take(42)) to TvStyle.danger
+                        stat.playedMs >= 60000 -> "稳定播放 · 首帧 ${stat.firstFrameMs}ms" to TvStyle.sage
+                        stat.successes > 0 -> "已出画 · 首帧 ${stat.firstFrameMs}ms" to TvStyle.sage
+                        else -> "待检测" to TvStyle.subtle
+                    }
+                    val host = runCatching { java.net.URI(source.url).host.orEmpty() }.getOrDefault("").take(18)
+                    CinemaRibbonView.RouteOption(
+                        source = source,
+                        title = "线路 ${index + 1} · ${SourceRoutes.label(source)}",
+                        subtitle = health,
+                        host = host,
+                        dotColor = dotColor
+                    )
+                }
+                return CinemaRibbonView.InspectorModel(
+                    channel = channel,
+                    specSummary = specSummary,
+                    isFavorite = channel.id in store.snapshot().favorites,
+                    previousChannel = prevChannel,
+                    routes = routes
+                )
+            }
+
+            override fun onToggleFavorite(channel: Channel): Boolean {
+                val added = store.favorite(channel.id)
+                ribbon?.updateCatalog(availableChannels(), store.snapshot().favorites)
+                toast(if (added) "已收藏「${channel.name}」" else "已取消收藏「${channel.name}」")
+                return added
+            }
+
+            override fun onReconnect(channel: Channel) {
+                closeOverlay(animate = false)
+                controller?.tune(channel, explicitRetry = true)
+            }
+
+            override fun onTunePrevious(previous: Channel) {
+                closeOverlay(animate = false)
+                syncChannelCursor(previous.id)
+                controller?.tune(previous)
+            }
+
+            override fun onSelectRoute(channel: Channel, source: Entry) {
+                closeOverlay(animate = false)
+                store.clearCooldown(source.url)
+                controller?.tune(channel, preferred = source)
+            }
+
+            override fun onProbeChannel(channel: Channel) {
+                if (channel.sources.isEmpty()) {
+                    toast("${channel.name} · ${channel.unavailableReason.ifEmpty { "暂无可用线路" }}")
+                    return
+                }
+                startProbe(listOf(channel))
+            }
+        },
+        onDismissRequest = { closeOverlay() }
+    ).also { ribbon = it }
+
+    private fun showLicenseModal() {
+        val license = runCatching {
+            assets.open("licenses/Apache-2.0.txt").bufferedReader().use { it.readText() }
+        }.getOrDefault("Apache License, Version 2.0")
+        showModal(
+            title = "Apache License 2.0",
+            message = license,
+            primaryLabel = "关闭",
+            secondaryLabel = null
+        ) { true }
+    }
+
+    private fun showChannels(restore: Boolean = false) {
+        val channels = availableChannels()
+        if (channels.isEmpty()) { showSettings(focusRight = true); return }
+        if (overlayMode == "channels" && overlay.isVisible && !closingOverlay) {
+            ribbon?.updateCatalog(channels, store.snapshot().favorites); return
+        }
+        beginOverlay("channels")
+        val view = obtainRibbon()
         (view.parent as? ViewGroup)?.removeView(view)
         overlay.addView(view, FrameLayout.LayoutParams(-1, -1))
         view.updateCatalog(channels, store.snapshot().favorites)
         view.updatePlayback(playbackChannelId, playbackMark)
-        view.open(controller?.current?.id, restore); view.appear()
+        view.open(controller?.current?.id, restore, openSettings = false)
+        view.appear()
         blurEngine.syncState()
     }
 
@@ -464,7 +669,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             when (previous.mode) {
                 "channels" -> showChannels(restore = true)
                 "options" -> showOptions(availableChannels().firstOrNull { it.id == previous.channelId } ?: controller?.current)
-                "settings" -> showSettings()
+                "settings" -> showSettings(tabIndex = lastSettingsTab)
                 "startup" -> showStartupSettings()
                 "subscriptions" -> showSubscriptions()
                 else -> closeOverlay()
@@ -475,64 +680,20 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private fun showOptions(channel: Channel? = availableChannels().firstOrNull { it.id == controller?.current?.id } ?: controller?.current) {
         if (channel == null) { showSettings(); return }
         optionsChannelId = channel.id
-        val spec = if (controller?.current?.id == channel.id) controller?.streamSpec?.badge().orEmpty() else ""
-        val schedule = epg.scheduleFor(channel.id)
-        val subParts = listOfNotNull(
-            spec.takeIf { it.isNotEmpty() },
-            schedule?.current?.title?.let { "正在播出：$it" }
-        )
-        val panel = sheet("", channel.name, subParts.joinToString(" · ").ifEmpty { "频道操作与多线路热切" }, "options", anchoredRight = true)
-
-        fun favTitle(fav: Boolean) = if (fav) "★  已在收藏夹" else "☆  加入收藏夹"
-        panel.addActionRow(favTitle(channel.id in store.snapshot().favorites), "收藏频道可在顶部「收藏」胶囊一键筛选", "OK 切换") { titleTv, _ ->
-            val added = store.favorite(channel.id)
-            titleTv.text = favTitle(added)
-            ribbon?.updateCatalog(availableChannels(), store.snapshot().favorites)
+        val channels = availableChannels()
+        if (overlayMode == "channels" && overlay.isVisible && !closingOverlay && ribbon?.parent == overlay) {
+            ribbon?.updateCatalog(channels, store.snapshot().favorites)
+            if (ribbon?.openChannelInspector(channel) == true) return
         }
-        panel.addActionRow("重新连接此频道", "清除线路冷却并从最优源重新拉流", "立即重试") { _, _ ->
-            closeOverlay(animate = false)
-            controller?.tune(channel, explicitRetry = true)
-        }
-        val prevId = controller?.previousChannelId
-        val prevChannel = if (prevId != null && prevId != channel.id) availableChannels().firstOrNull { it.id == prevId && it.sources.isNotEmpty() } else null
-        if (prevChannel != null) {
-            panel.addActionRow("↺  回看上一频道", prevChannel.name, "切回") { _, _ ->
-                closeOverlay(animate = false)
-                syncChannelCursor(prevChannel.id)
-                controller?.tune(prevChannel)
-            }
-        }
-        panel.addSectionHeader("可用线路（${channel.sources.size}）")
-        if (channel.sources.isEmpty()) {
-            panel.addInfoBlock(channel.unavailableReason.ifEmpty { "此频道暂无可用线路，可通过手机扫码或控制中心更新订阅。" })
-        } else {
-            channel.sources.forEachIndexed { index, source ->
-                val stat = store.snapshot().stats[sourceId(source.url)]
-                val (health, dotColor) = when {
-                    stat == null -> "尚未在本机实测" to TvStyle.subtle
-                    stat.lastOutcome == "connecting" -> "正在连接…" to TvStyle.accent
-                    stat.error.isNotBlank() -> ("上次异常 · " + stat.error.take(64)) to TvStyle.danger
-                    stat.playedMs >= 60000 -> "稳定播放 · 首帧 ${stat.firstFrameMs}ms" to TvStyle.sage
-                    stat.successes > 0 -> "已出画 · 首帧 ${stat.firstFrameMs}ms" to TvStyle.sage
-                    else -> "待检测" to TvStyle.subtle
-                }
-                panel.addActionRow(
-                    title = "线路 ${index + 1} · ${SourceRoutes.label(source)}",
-                    subtitle = health,
-                    accessory = java.net.URI(source.url).host.take(18),
-                    statusColor = dotColor
-                ) { _, _ ->
-                    closeOverlay(animate = false)
-                    store.clearCooldown(source.url)
-                    controller?.tune(channel, preferred = source)
-                }
-            }
-            panel.addActionRow("自动测速此频道全部线路", "静音逐条验证首帧与缓冲状态", "开始") { _, _ ->
-                startProbe(listOf(channel))
-            }
-        }
-        panel.addActionRow("打开控制中心", "订阅源、节目单与自启动设置", "→") { _, _ -> showSettings() }
-        panel.focusFirstRow()
+        beginOverlay("channels")
+        val view = obtainRibbon()
+        (view.parent as? ViewGroup)?.removeView(view)
+        overlay.addView(view, FrameLayout.LayoutParams(-1, -1))
+        view.updateCatalog(channels, store.snapshot().favorites)
+        view.updatePlayback(playbackChannelId, playbackMark)
+        view.openForInspector(channel)
+        view.appear()
+        blurEngine.syncState()
     }
 
     private fun routingLabel(): String = RoutingMode.read(this).title
@@ -541,73 +702,40 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
 
     private fun fontScaleLabel(): String = TvStyle.fontScaleMode(this).title
 
-    private fun showSettings(focusRowIndex: Int = 0) {
-        val panel = sheet("", "控制中心", "SwiftTV ${BuildConfig.VERSION_NAME} · 纯本地播放器", "settings")
-
-        panel.addSectionHeader("播放与画面体验")
-        panel.addSegmentRow("优先路由策略", "自动按本机网络 IPv6 可达性、实测延迟与并发竞速选路", routingLabel()) {
-            RoutingMode.save(this, RoutingMode.read(this).next())
-            availableChannels().firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it) }
-            routingLabel()
+    private fun showSettings(
+        tabIndex: Int = 0,
+        focusRight: Boolean = false,
+        skipAppear: Boolean = false,
+        focusKey: String? = null
+    ) {
+        lastSettingsTab = tabIndex
+        val channels = availableChannels()
+        if (overlayMode == "channels" && overlay.isVisible && !closingOverlay && ribbon?.parent == overlay) {
+            ribbon?.updateCatalog(channels, store.snapshot().favorites)
+            ribbon?.open(
+                controller?.current?.id,
+                restore = false,
+                openSettings = true,
+                focusRightSettings = focusRight,
+                focusSettingsKey = focusKey
+            )
+            return
         }
-        panel.addSegmentRow("上下键换台方向", "默认 ↓ 切下一个、↑ 切上一个；频道加减键固定不变", switchDirectionLabel()) {
-            ChannelSwitchDirection.save(this, ChannelSwitchDirection.read(this).next())
-            switchDirectionLabel()
-        }
-        panel.addSegmentRow("界面字体大小", "支持 4 挡长辈大字调节，即时生效不中断播放", fontScaleLabel()) {
-            val nextFont = TvStyle.fontScaleMode(this).next()
-            TvStyle.setFontScaleMode(this, nextFont)
-            rebuildChromeForFontScale()
-            restoringMenu = true
-            try { showSettings(focusRowIndex = 2) } finally { restoringMenu = false }
-            nextFont.title
-        }
-        panel.addSegmentRow("视觉与毛玻璃效果", "实时光学视频动态模糊与丝滑弹簧动效", if (TvStyle.lightweight(this)) "极速纯色" else "光学毛玻璃") {
-            val nextLight = !TvStyle.lightweight(this)
-            TvStyle.setLightweight(this, nextLight)
-            hud.refreshSurface()
-            numberOsd.refreshSurface()
-            panel.refreshSurface()
-            blurEngine.syncState()
-            if (nextLight) "极速纯色" else "光学毛玻璃"
-        }
-        panel.addActionRow("开机自动看直播", StartupRuntime.settingLabel(this), "配置 →") { _, _ -> showStartupSettings() }
-
-        panel.addSectionHeader("订阅源与节目单（EPG）")
-        panel.addActionRow("手机扫码管理台", "同一 Wi-Fi 扫码导入 M3U / HLS 直链、配置节目单与管理订阅", "打开二维码 →") { _, _ -> showPairing() }
-        panel.addActionRow("手动输入订阅或直播流地址", "支持 M3U 频道表及单频道 HLS (.m3u8) / TS / FLV 直链", "输入 →") { _, _ -> manualImport() }
-        panel.addActionRow("从电视本地文件导入", "选择本地存储中的 .m3u / .m3u8 文件", "浏览 →") { _, _ ->
-            StartupRuntime.beginInternalSystemFlow()
-            try { openDocumentLauncher.launch(arrayOf("*/*")) }
-            catch (_: Exception) { toast("这台电视未提供文件选择器，请使用手机扫码或安装助手导入") }
-        }
-        panel.addActionRow("设置 XMLTV 节目单地址", if (store.snapshot().customEpgUrl.isEmpty()) "支持 .xml / .xml.gz（未配置时保持纯净静默）" else "已配置自定义节目单", "配置 →") { _, _ ->
-            configureEpgDialog()
-        }
-        panel.addActionRow("刷新全部订阅与节目单", "立即后台同步远程 M3U 与最新节目预告", "立即刷新") { _, _ ->
-            refreshSubscriptions(true)
-            refreshEpg(true)
-        }
-        panel.addActionRow("管理已保存订阅", "共 ${store.snapshot().subscriptions.size} 个订阅源", "查看 →") { _, _ -> showSubscriptions() }
-
-        panel.addSectionHeader("诊断与说明")
-        panel.addActionRow("批量测速当前分类线路", "当前分类：${group}", "开始") { _, _ ->
-            val selected = availableChannels().filter {
-                it.sources.isNotEmpty() && (group == "全部" || (group == "收藏" && it.id in store.snapshot().favorites) || it.group == group)
-            }
-            if (selected.isNotEmpty()) startProbe(selected) else toast("当前分类没有可测线路")
-        }
-        panel.addActionRow("扫码导出脱敏诊断", "在手机下载隐藏密钥的本机播放质量 JSON", "导出 →") { _, _ -> showPairing(export = true) }
-        panel.addActionRow("本机硬件解码能力", if (codecProfile.supports4kHevc50) "检测到 4K HEVC 硬件解码能力" else "1080p 优先", "详情") { _, _ ->
-            val note = if (codecProfile.supports4kHevc50) "检测到 4K HEVC 硬件解码能力。实际播放由线路与设备决定。"
-                else "优先选择 1080p H.264/AAC 线路。"
-            showModal("本机解码能力", note, primaryLabel = "关闭", secondaryLabel = null) { true }
-        }
-        panel.addActionRow("开源许可", "Apache-2.0", "查看") { _, _ ->
-            val license = assets.open("licenses/Apache-2.0.txt").bufferedReader().use { it.readText() }
-            showModal("Apache-2.0", license, primaryLabel = "关闭", secondaryLabel = null) { true }
-        }
-        panel.focusRow(focusRowIndex)
+        beginOverlay("channels")
+        val view = obtainRibbon()
+        (view.parent as? ViewGroup)?.removeView(view)
+        overlay.addView(view, FrameLayout.LayoutParams(-1, -1))
+        view.updateCatalog(channels, store.snapshot().favorites)
+        view.updatePlayback(playbackChannelId, playbackMark)
+        view.open(
+            controller?.current?.id,
+            restore = false,
+            openSettings = true,
+            focusRightSettings = focusRight,
+            focusSettingsKey = focusKey
+        )
+        if (skipAppear) view.cancelMotion() else view.appear()
+        blurEngine.syncState()
     }
 
     private fun showStartupSettings() {
@@ -633,7 +761,12 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             toast("当前电视系统未开放该设置页，可通过 ADB 授权适配")
         }
 
-        panel.addActionRow("授权开机助手（推荐）", "仅识别前台包名与亮灭屏，不读取内容不过滤遥控器", if (StartupRuntime.guardEnabled(this)) "已授权" else "去开启 →") { _, _ ->
+        panel.addActionRow(
+            title = "授权开机助手（推荐）",
+            subtitle = "仅识别前台包名与亮灭屏，不读取内容不过滤遥控器",
+            accessory = if (StartupRuntime.guardEnabled(this)) "已授权" else "去开启 ›",
+            glyph = TvGlyph.POWER
+        ) { _, _ ->
             showModal(
                 title = "启用 SwiftTV 开机助手",
                 message = "用于开机、待机唤醒及系统回收后的直播恢复。\n\n仅识别前台应用包名，不读取文字节点，不拦截按键。请在下一页系统无障碍设置中找到「SwiftTV 开机助手」并开启。",
@@ -641,14 +774,29 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             ) { openSettings("guard"); true }
         }
         if (Build.VERSION.SDK_INT >= 29) {
-            panel.addActionRow("允许后台弹出界面", "Android 10 及以上电视后台拉起直播所需权限", if (StartupRuntime.overlayAllowed(this)) "已允许" else "去允许 →") { _, _ ->
+            panel.addActionRow(
+                title = "允许后台弹出界面",
+                subtitle = "Android 10 及以上电视后台拉起直播所需权限",
+                accessory = if (StartupRuntime.overlayAllowed(this)) "已允许" else "去允许 ›",
+                glyph = TvGlyph.SETTINGS
+            ) { _, _ ->
                 openSettings("overlay")
             }
         }
-        panel.addActionRow("系统回收恢复辅助（可选）", "借助通知服务重绑机制恢复直播，不读取任何通知", if (StartupRuntime.listenerEnabled(this)) "已开启" else "去设置 →") { _, _ ->
+        panel.addActionRow(
+            title = "系统回收恢复辅助（可选）",
+            subtitle = "借助通知服务重绑机制恢复直播，不读取任何通知",
+            accessory = if (StartupRuntime.listenerEnabled(this)) "已开启" else "去设置 ›",
+            glyph = TvGlyph.REFRESH
+        ) { _, _ ->
             openSettings("listener")
         }
-        panel.addActionRow("电视应用自启动与后台权限", "打开本应用系统详情页配置厂商后台策略", "打开 →") { _, _ -> openSettings("app") }
+        panel.addActionRow(
+            title = "电视应用自启动与后台权限",
+            subtitle = "打开本应用系统详情页配置厂商后台策略",
+            accessory = "打开 ›",
+            glyph = TvGlyph.CHIP
+        ) { _, _ -> openSettings("app") }
         panel.focusFirstRow()
     }
 
@@ -659,9 +807,16 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             panel.addInfoBlock("当前没有已保存的订阅。")
         } else {
             subs.forEach { sub ->
-                val origin = if (sub.url.isEmpty()) "本机内置/本地文件" else (runCatching { streamUri(sub.url).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: sub.url)
+                val rawOrigin = if (sub.url.isEmpty()) "本机内置 / 本地文件" else (runCatching { streamUri(sub.url).host }.getOrNull()?.takeIf { it.isNotBlank() } ?: sub.url)
+                val baseOrigin = if (rawOrigin == sub.name) "网络订阅源" else rawOrigin
                 val epgTag = if (sub.epgUrl.isNotEmpty()) " · 含节目单" else ""
-                panel.addActionRow(sub.name, origin + epgTag, "删除", statusColor = TvStyle.sage) { _, _ ->
+                panel.addActionRow(
+                    title = sub.name,
+                    subtitle = baseOrigin + epgTag,
+                    accessory = "删除",
+                    glyph = TvGlyph.SOURCES,
+                    accessoryColor = TvStyle.danger
+                ) { _, _ ->
                     showModal(
                         title = "移除订阅「${sub.name}」？",
                         message = "将移除该订阅提供的频道线路，其他订阅与收藏列表保持不变。",
@@ -833,9 +988,12 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         beginOverlay(if (export) "export" else "pair")
         val thisSession = session
         val host = localAddress()
+        overlay.isClickable = true
+        overlay.setOnClickListener { backThroughMenus() }
         val content = FrostedContainer(this, blurEngine, cornerRadiusDp = 24f, veilAlpha = 76).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            isClickable = true
             setPadding(dp(42), dp(32), dp(42), dp(32))
             elevation = dp(14).toFloat()
         }
@@ -891,7 +1049,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 try { openDocumentLauncher.launch(arrayOf("*/*")) }
                 catch (_: Exception) { toast("这台电视未提供文件选择器，请使用手机扫码或安装助手导入") }
             }
-            val settingsBtn = makeActionPill("控制中心") { showSettings() }
+            val settingsBtn = makeActionPill("更多设置") { showSettings() }
             actionRow.addView(manualBtn, LinearLayout.LayoutParams(-2, -2))
             actionRow.addView(fileBtn, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(10) })
             actionRow.addView(settingsBtn, LinearLayout.LayoutParams(-2, -2).apply { leftMargin = dp(10) })
@@ -1162,7 +1320,10 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
         handler.removeCallbacks(hideHud)
         if (!failed && message == "正在播放") handler.postDelayed(hideHud, 3800)
-        if (failed && !overlay.isVisible && !modalHost.isNotEmpty() && controller?.probing != true) showChannels()
+        if (failed && !overlay.isVisible && !modalHost.isNotEmpty() && controller?.probing != true) {
+            toast("${channel?.name ?: "当前频道"} · $message")
+            showChannels()
+        }
     }
 
     override fun onStartupSourceIssue(channel: Channel, issue: StartupSourceIssue) {
@@ -1172,7 +1333,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             return
         }
         if (overlay.isVisible || modalHost.isNotEmpty()) {
-            toast("启动后暂无画面，可在控制中心调整信号源")
+            toast("启动后暂无画面，可在设置中调整信号源")
             return
         }
         showModal(
@@ -1242,8 +1403,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         if (bannerIdx >= 0) {
             root.removeViewAt(bannerIdx)
             toastBanner = CinemaToastBanner(this, blurEngine)
-            root.addView(toastBanner, bannerIdx, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
-                topMargin = dp(24); leftMargin = dp(40); rightMargin = dp(40)
+            root.addView(toastBanner, bannerIdx, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply {
+                topMargin = dp(24); leftMargin = dp(32); rightMargin = dp(32)
             })
         }
         blurEngine.syncState()
@@ -1286,6 +1447,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         if (modalHost.isNotEmpty()) { dismissModal(); return }
         if (numberPad.active) { cancelNumberInput(); return }
         if (controller?.probing == true) { controller?.stopProbe(); return }
+        if (overlayMode == "channels" && overlay.isVisible && ribbon?.handleBack() == true) return
         if (overlay.isVisible) { backThroughMenus(); return }
         showModal(
             title = "退出 SwiftTV 直播？",
@@ -1313,8 +1475,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         if (modalHost.isNotEmpty()) return false
         if (event.keyCode == KeyEvent.KEYCODE_MENU) {
             if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                if (overlayMode == "channels") showOptions(ribbon?.selectedChannel() ?: controller?.current)
-                else if (!overlay.isVisible) showOptions()
+                if (overlayMode == "channels" && overlay.isVisible && ribbon?.isInSettingsMode() == true) closeOverlay()
+                else showSettings(focusRight = true)
             }
             return true
         }
@@ -1388,7 +1550,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 return true
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> { showChannels(); return true }
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MENU -> { showOptions(); return true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { showOptions(); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> { showChannels(); return true }
         }
         return super.onKeyDown(keyCode, event)

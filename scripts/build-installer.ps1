@@ -19,7 +19,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installer Gradle validation/build failed.' }
     $delivery = Join-Path $repoRoot 'output\delivery'
     [void][IO.Directory]::CreateDirectory($delivery)
-    Copy-Item -LiteralPath 'app\build\outputs\apk\release\app-release.apk' -Destination (Join-Path $delivery 'SwiftTV-Installer-1.1.3.apk')
-    Copy-Item -LiteralPath 'app\build\outputs\apk\debug\app-debug.apk' -Destination (Join-Path $delivery 'SwiftTV-Installer-1.1.3-debug.apk')
+    Copy-Item -LiteralPath 'app\build\outputs\apk\release\app-release.apk' -Destination (Join-Path $delivery 'SwiftTV-Installer-1.1.4.apk')
+    Copy-Item -LiteralPath 'app\build\outputs\apk\debug\app-debug.apk' -Destination (Join-Path $delivery 'SwiftTV-Installer-1.1.4-debug.apk')
     Get-ChildItem -LiteralPath $delivery -Filter 'SwiftTV-Installer-*.apk' | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash
 } finally { Pop-Location }

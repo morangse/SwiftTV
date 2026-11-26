@@ -5,8 +5,8 @@ import android.view.KeyEvent
 import androidx.core.content.edit
 
 enum class ChannelSwitchDirection(val key: String, val title: String) {
-    NATURAL("natural", "↓ 下一个 / ↑ 上一个"),
-    INVERTED("inverted", "↑ 下一个 / ↓ 上一个");
+    NATURAL("natural", "↓ 下台 / ↑ 上台"),
+    INVERTED("inverted", "↑ 下台 / ↓ 上台");
 
     fun next(): ChannelSwitchDirection = entries[(ordinal + 1) % entries.size]
 

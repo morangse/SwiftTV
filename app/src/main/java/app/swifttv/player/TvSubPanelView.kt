@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -172,11 +173,31 @@ class CinemaSheetView(
 
     val rows = LinearLayout(context).apply {
         orientation = VERTICAL
-        setPadding(dp(2), dp(10), dp(2), dp(6))
-    }
-    private val scrollView = ScrollView(context).apply {
-        isVerticalScrollBarEnabled = false
+        clipChildren = false
         clipToPadding = false
+        setPadding(dp(4), dp(10), dp(4), dp(8))
+    }
+    private var maxScrollHeightPx = dp(400)
+    private val scrollView = object : ScrollView(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val cappedSpec = MeasureSpec.makeMeasureSpec(maxScrollHeightPx, MeasureSpec.AT_MOST)
+            super.onMeasure(widthMeasureSpec, cappedSpec)
+        }
+
+        override fun computeScrollDeltaToGetChildRectOnScreen(rect: Rect): Int {
+            val maxScroll = (getChildAt(0)?.height ?: 0) - height
+            if (maxScroll <= 0) return 0
+            val target = rect.top - (height * 0.30f).toInt()
+            return target.coerceIn(0, maxScroll) - scrollY
+        }
+    }.apply {
+        isVerticalScrollBarEnabled = false
+        isVerticalFadingEdgeEnabled = true
+        setFadingEdgeLength(dp(18))
+        overScrollMode = OVER_SCROLL_NEVER
+        isFocusable = false
+        clipChildren = true
+        clipToPadding = true
         addView(rows, LayoutParams(-1, -2))
     }
 
@@ -188,6 +209,9 @@ class CinemaSheetView(
         text = "返回"
         textSize = sp(13f)
         isAllCaps = false
+        isFocusable = false
+        isFocusableInTouchMode = false
+        isClickable = true
         setTextColor(TvStyle.ink)
         gravity = Gravity.CENTER
         includeFontPadding = false
@@ -195,32 +219,52 @@ class CinemaSheetView(
         setPadding(dp(14), dp(5), dp(14), dp(5))
         background = TvStyle.pillButton(context)
         stateListAnimator = null
-        setOnFocusChangeListener { _, focused ->
-            setTextColor(if (focused) TvStyle.inkOnPorcelain else TvStyle.ink)
-            typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
-        }
         setOnClickListener { onBackClick?.invoke() }
     }
     private val footer = LinearLayout(context).apply {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(4), dp(10), dp(4), 0)
-        addView(TextView(context).apply {
-            text = context.getString(R.string.subpanel_footer_hint)
-            textSize = sp(11.5f)
-            setTextColor(TvStyle.subtle)
-            includeFontPadding = false
-        }, LayoutParams(0, -2, 1f))
+        addFooterChip("OK", "确认", trailingGapDp = 14)
+        addFooterChip("返回", "上一层", trailingGapDp = 8)
+        addView(View(context), LayoutParams(0, 1, 1f))
         if (onBackClick != null) addView(backPill, LayoutParams(-2, -2))
+    }
+
+    private fun LinearLayout.addFooterChip(key: String, label: String, trailingGapDp: Int) {
+        addView(TextView(context).apply {
+            text = key
+            textSize = sp(11f)
+            setTextColor(TvStyle.ink)
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+            includeFontPadding = false
+            maxLines = 1
+            background = TvStyle.badge(context)
+            setPadding(dp(6), dp(2), dp(6), dp(2))
+        }, LayoutParams(-2, -2))
+        addView(TextView(context).apply {
+            text = label
+            textSize = sp(12f)
+            setTextColor(TvStyle.muted)
+            includeFontPadding = false
+            maxLines = 1
+        }, LayoutParams(-2, -2).apply {
+            leftMargin = dp(5)
+            rightMargin = dp(trailingGapDp)
+        })
     }
 
     init {
         orientation = VERTICAL
         layoutDirection = LAYOUT_DIRECTION_LTR
+        isClickable = true
+        isFocusable = false
+        clipChildren = true
+        clipToPadding = true
         elevation = dp(12).toFloat()
         setPadding(dp(22), dp(20), dp(22), dp(16))
         addView(headerBlock, LayoutParams(-1, -2))
         addView(headerDivider, LayoutParams(-1, 1))
-        addView(scrollView, LayoutParams(-1, 0, 1f))
+        addView(scrollView, LayoutParams(-1, -2))
         addView(footerDivider, LayoutParams(-1, 1))
         addView(footer, LayoutParams(-1, -2))
     }
@@ -263,9 +307,9 @@ class CinemaSheetView(
     }
 
     /** Structured TV Segmented Stepper Row: supports OK, Left, or Right keys to cycle cleanly in place. */
-    fun addSegmentRow(title: String, subtitle: String, initialValue: String, onCycle: () -> String): View {
+    fun addSegmentRow(title: String, subtitle: String, initialValue: String, glyph: TvGlyph? = null, onCycle: () -> String): View {
         val pill = TextView(context).apply {
-            text = "‹  $initialValue  ›"
+            text = "$initialValue ›"
             textSize = sp(12.5f)
             setTextColor(TvStyle.ink)
             includeFontPadding = false
@@ -277,6 +321,7 @@ class CinemaSheetView(
             title = title,
             subtitle = subtitle,
             rightWidget = pill,
+            glyph = glyph,
             onFocusChanged = { focused ->
                 pill.setTextColor(if (focused) TvStyle.inkOnPorcelain else TvStyle.ink)
                 pill.background = TvStyle.badge(context, onPorcelain = focused)
@@ -284,7 +329,7 @@ class CinemaSheetView(
         )
         val trigger = {
             val nextVal = onCycle()
-            pill.text = "‹  $nextVal  ›"
+            pill.text = "$nextVal ›"
         }
         row.setOnClickListener { trigger() }
         row.setOnKeyListener { _, key, event ->
@@ -295,12 +340,14 @@ class CinemaSheetView(
         return row
     }
 
-    /** Structured Action Row with optional right-side accessory text or status dot. */
+    /** Structured Action Row with optional icon well, right-side accessory text, or status dot. */
     fun addActionRow(
         title: String,
         subtitle: String = "",
         accessory: String = "",
         statusColor: Int? = null,
+        glyph: TvGlyph? = null,
+        accessoryColor: Int? = null,
         onClick: (TextView, TextView) -> Unit
     ): View {
         val rightBox = LinearLayout(context).apply {
@@ -315,7 +362,7 @@ class CinemaSheetView(
         val accText = TextView(context).apply {
             text = accessory
             textSize = sp(12.5f)
-            setTextColor(TvStyle.muted)
+            setTextColor(accessoryColor ?: TvStyle.muted)
             includeFontPadding = false
             visibility = if (accessory.isEmpty()) GONE else VISIBLE
         }
@@ -324,8 +371,14 @@ class CinemaSheetView(
             title = title,
             subtitle = subtitle,
             rightWidget = rightBox,
+            glyph = glyph,
             onFocusChanged = { focused ->
-                accText.setTextColor(if (focused) TvStyle.mutedOnPorcelain else TvStyle.muted)
+                val color = when {
+                    accessoryColor == null -> if (focused) TvStyle.mutedOnPorcelain else TvStyle.muted
+                    focused && accessoryColor == TvStyle.danger -> Color.rgb(198, 42, 42)
+                    else -> accessoryColor
+                }
+                accText.setTextColor(color)
             }
         ) { titleTv, subTv ->
             onClick(titleTv, subTv)
@@ -336,16 +389,19 @@ class CinemaSheetView(
         title: String,
         subtitle: String,
         rightWidget: View,
+        glyph: TvGlyph? = null,
         onFocusChanged: ((Boolean) -> Unit)? = null
-    ): View = createBaseInteractiveRowWithHandles(title, subtitle, rightWidget, onFocusChanged, null)
+    ): View = createBaseInteractiveRowWithHandles(title, subtitle, rightWidget, glyph, onFocusChanged, null)
 
     private fun createBaseInteractiveRowWithHandles(
         title: String,
         subtitle: String,
         rightWidget: View,
+        glyph: TvGlyph? = null,
         onFocusChanged: ((Boolean) -> Unit)? = null,
         onClickHandles: ((TextView, TextView) -> Unit)?
     ): View {
+        val well = glyph?.let { TvIconWellView(context, it, boxDp = 30, iconDp = 15) }
         val titleTv = TextView(context).apply {
             text = title
             textSize = sp(14.5f)
@@ -366,11 +422,13 @@ class CinemaSheetView(
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             isFocusable = true
-            isFocusableInTouchMode = true
             isClickable = true
             minimumHeight = dp(48)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(12), dp(10), dp(14), dp(10))
             background = TvStyle.porcelainRowSelector(context)
+            if (well != null) {
+                addView(well, LayoutParams(dp(30), dp(30)).apply { rightMargin = dp(10) })
+            }
             val leftCol = LinearLayout(context).apply {
                 orientation = VERTICAL
                 addView(titleTv)
@@ -379,14 +437,15 @@ class CinemaSheetView(
             addView(leftCol, LayoutParams(0, -2, 1f).apply { rightMargin = dp(12) })
             addView(rightWidget, LayoutParams(-2, -2))
             setOnFocusChangeListener { v, focused ->
+                well?.setOnPorcelain(focused)
                 titleTv.setTextColor(if (focused) TvStyle.inkOnPorcelain else TvStyle.ink)
                 titleTv.typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
                 subTv.setTextColor(if (focused) TvStyle.mutedOnPorcelain else TvStyle.muted)
                 onFocusChanged?.invoke(focused)
                 if (!TvStyle.lightweight(context)) {
                     v.animate().cancel()
-                    val s = if (focused) 1.016f else 1f
-                    v.elevation = if (focused) dp(6).toFloat() else 0f
+                    val s = if (focused) 1.022f else 1f
+                    v.elevation = 0f
                     v.animate().scaleX(s).scaleY(s).setDuration(140L).setInterpolator(TvStyle.springOut).start()
                 }
             }
@@ -394,7 +453,7 @@ class CinemaSheetView(
                 setOnClickListener { onClickHandles(titleTv, subTv) }
             }
         }.also {
-            rows.addView(it, LayoutParams(-1, -2).apply { bottomMargin = dp(5) })
+            rows.addView(it, LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
         }
     }
 
@@ -444,9 +503,15 @@ class CinemaSheetView(
         val desiredH = min((580 + 60 * extraScale).roundToInt(), (vhDp * (0.84f + 0.04f * extraScale)).roundToInt())
 
         val targetW = dp(desiredW.coerceIn(1, availW))
-        val targetH = dp(desiredH.coerceIn(1, availH))
+        val maxH = dp(desiredH.coerceIn(1, availH))
+        val innerWSpec = MeasureSpec.makeMeasureSpec((targetW - paddingLeft - paddingRight).coerceAtLeast(1), MeasureSpec.EXACTLY)
+        val unspecH = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        headerBlock.measure(innerWSpec, unspecH)
+        footer.measure(innerWSpec, unspecH)
+        val chromeH = paddingTop + paddingBottom + headerBlock.measuredHeight + footer.measuredHeight + dp(4)
+        maxScrollHeightPx = (maxH - chromeH).coerceAtLeast(dp(120))
         val grav = if (anchoredRight) (Gravity.END or Gravity.CENTER_VERTICAL) else Gravity.CENTER
-        layoutParams = FrameLayout.LayoutParams(targetW, targetH, grav).apply {
+        layoutParams = FrameLayout.LayoutParams(targetW, -2, grav).apply {
             setMargins(dp(edgeDp), dp(edgeDp), dp(edgeDp), dp(edgeDp))
         }
     }
@@ -492,6 +557,7 @@ class CinemaModalDialog(
 
     private val card = FrostedContainer(context, blurEngine, cornerRadiusDp = 24f, veilAlpha = 82).apply {
         orientation = LinearLayout.VERTICAL
+        isClickable = true
         setPadding(dp(28), dp(24), dp(28), dp(22))
         elevation = dp(18).toFloat()
     }
@@ -500,6 +566,7 @@ class CinemaModalDialog(
         setBackgroundColor(Color.argb(150, 4, 6, 10))
         isClickable = true
         isFocusable = true
+        setOnClickListener { onSecondary() }
 
         card.addView(TextView(context).apply {
             text = title
@@ -511,6 +578,8 @@ class CinemaModalDialog(
         if (message.isNotEmpty()) {
             val msgScroll = ScrollView(context).apply {
                 isVerticalScrollBarEnabled = false
+                isVerticalFadingEdgeEnabled = true
+                setFadingEdgeLength(dp(16))
                 addView(TextView(context).apply {
                     text = message
                     textSize = sp(14f)
