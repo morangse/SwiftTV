@@ -4,23 +4,23 @@ window.SWIFTTV_SITE_CONFIG = {
 
   // GitHub API 限流或离线时使用的保底发行版信息（会在加载后自动尝试从 GitHub Releases Latest 实时更新）
   fallbackRelease: {
-    tag: "v0.4.2",
-    publishedAt: "2026-11-25",
-    releaseUrl: "https://github.com/morangse/SwiftTV/releases/tag/v0.4.2",
+    tag: "v0.4.3",
+    publishedAt: "2026-11-26",
+    releaseUrl: "https://github.com/morangse/SwiftTV/releases/tag/v0.4.3",
     allReleasesUrl: "https://github.com/morangse/SwiftTV/releases",
     tvApk: {
-      name: "SwiftTV-0.4.2.apk",
-      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SwiftTV-0.4.2.apk",
-      sizeLabel: "1.5 MB",
-      sha256: "c69878698a10e6cd3b04ddbb23a7725584ac32a22d5a942c4f4a16f5f702dafb"
+      name: "SwiftTV-0.4.3.apk",
+      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.3/SwiftTV-0.4.3.apk",
+      sizeLabel: "1.9 MB",
+      sha256: "8975f6de5d0249370e4acee84ebe4c8e6e28869202bab42f2ad247e081ee4c60"
     },
     installerApk: {
-      name: "SwiftTV-Installer-1.1.2.apk",
-      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SwiftTV-Installer-1.1.2.apk",
-      sizeLabel: "20.1 MB",
-      sha256: "ae9a2d76f8f3d03d5dc2674c65fa7b4bf607bb44c1acf83923b36a1214e3cb1e"
+      name: "SwiftTV-Installer-1.1.3.apk",
+      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.3/SwiftTV-Installer-1.1.3.apk",
+      sizeLabel: "20.6 MB",
+      sha256: "975eaf0c6a5381fa419b0a1c53fefc71417a898402e75decc6ee3a79ffda7912"
     },
-    checksumsUrl: "https://github.com/morangse/SwiftTV/releases/download/v0.4.2/SHA256SUMS.txt"
+    checksumsUrl: "https://github.com/morangse/SwiftTV/releases/download/v0.4.3/SHA256SUMS.txt"
   },
 
   // 合法公开测试源与遵循 DMCA 的开源免费列表（仅作播放器功能与格式调试用途）
