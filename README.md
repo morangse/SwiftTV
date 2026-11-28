@@ -11,6 +11,8 @@
   &nbsp;·&nbsp;
   <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk"><strong>下载 SwiftTV 0.4.4</strong></a>
   &nbsp;·&nbsp;
+  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Lite-0.4.4.apk"><strong>下载 SwiftTV Lite（Android 4.4+）</strong></a>
+  &nbsp;·&nbsp;
   <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.4">v0.4.4 发行说明</a>
   &nbsp;·&nbsp;
   <a href="#安装与导入">快速上手</a>
@@ -18,7 +20,7 @@
   <a href="#社区公开源整理参考">社区源参考</a>
 </p>
 
-<p align="center">Android 6.0+（API 23）&nbsp; · &nbsp;M3U / 单频道 HLS (.m3u8) / XMLTV&nbsp; · &nbsp;Apache-2.0</p>
+<p align="center">标准版 Android 6.0+（API 23）&nbsp; · &nbsp;Lite 版 Android 4.4+（API 19）&nbsp; · &nbsp;M3U / 单频道 HLS (.m3u8) / XMLTV&nbsp; · &nbsp;Apache-2.0</p>
 
 > **定位声明**：SwiftTV 是一个**纯空壳本地播放器**，安装包与源码内不内置、不预设、不分发任何第三方直播源、频道列表或媒体内容。所有频道表、单频道流地址和节目单均由用户自行添加、托管或推送导入。
 
@@ -48,7 +50,10 @@
 
 ## 安装与导入
 
-1. **安装到电视**：下载 [SwiftTV-0.4.4.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk)（校验见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SHA256SUMS.txt)）用 U 盘安装，或在手机安装同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.4.apk`)** 通过局域网无线推送安装。
+1. **按电视系统选择安装包**：
+   - **标准版（Android 6.0+ / API 23）**：[SwiftTV-0.4.4.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk)（`app.swifttv.player`），完整光学晶体界面与并发竞速体验。
+   - **Lite 精简版（Android 4.4+ / API 19）**：[SwiftTV-Lite-0.4.4.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Lite-0.4.4.apk)（独立包名 `app.swifttv.player.lite`，可与标准版共存安装）。保留全部播控、竞速、断流自动重连、长辈大字与扫码导源功能，采用轻量平面渲染、`SurfaceView` 视频输出与低内存缓冲，并内置 API 19 TLS 1.2 兼容层，专为老旧电视与运营商机顶盒打造。
+   - 所有 APK 校验摘要见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SHA256SUMS.txt)；也可通过同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.4.apk`)** 在手机端局域网无线推送安装。
 2. **首次启动配对导源**：首次打开 SwiftTV 且尚未导入频道时，界面会直接显示**手机配对二维码**与左侧快速入口（`手动输入地址` / `本地文件` / `更多设置`）。
 3. **手机推送直播源（推荐）**：
    - **方式 A（手机浏览器扫码）**：手机与电视在同一 Wi‑Fi 下扫一扫屏幕二维码，可输入远程 `.m3u` / 单频道 `.m3u8` 链接、或直接上传手机本地 `.m3u/.m3u8` 文件并点击发送，电视端按 OK 确认预览即可播放。
@@ -106,12 +111,14 @@ cd installer
 
 ## 设备与从源码构建
 
-最低支持 **Android TV 6.0（API 23）**，4K / HEVC 解码与实际画面表现取决于电视硬件能力，可在「设置 → 本机硬件解码能力」查看检测结果。
+- **标准版（`standard` flavor）**：最低支持 **Android TV 6.0（API 23）**，Media3 1.11 + OkHttp 4.12。
+- **Lite 精简版（`lite` flavor）**：最低支持 **Android 4.4 KitKat（API 19）**，Media3 1.4.1 + OkHttp 3.12 + API 19 TLS 1.2 兼容层 + 零特效平面 `SurfaceView` 渲染。
+- 4K / HEVC 解码与实际画面表现取决于电视硬件能力，可在「设置 → 本机硬件解码能力」查看检测结果。
 
 构建需要 JDK 17、Android SDK Platform 36 与 Build Tools 36：
 
 ```powershell
-.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+.\gradlew.bat :app:testStandardDebugUnitTest :app:testLiteDebugUnitTest :app:lintStandardDebug :app:lintLiteDebug :app:assembleStandardRelease :app:assembleLiteRelease
 ```
 
 更多签名、验证与隐私说明见 [docs/BUILD.md](docs/BUILD.md) 和 [docs/DEVICE.md](docs/DEVICE.md)。SwiftTV 使用 [Apache-2.0](LICENSE) 许可证，第三方依赖声明见 [NOTICE](NOTICE)。

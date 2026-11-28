@@ -11,6 +11,7 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.os.Build
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
@@ -190,8 +191,8 @@ class CinemaRibbonView(
     }
     private val catScroll = ScrollView(context).apply {
         isVerticalScrollBarEnabled = false
-        isVerticalFadingEdgeEnabled = true
-        setFadingEdgeLength(dp(18))
+        isVerticalFadingEdgeEnabled = !BuildConfig.IS_LITE
+        if (!BuildConfig.IS_LITE) setFadingEdgeLength(dp(18))
         overScrollMode = OVER_SCROLL_NEVER
         isFocusable = false
         clipToPadding = true
@@ -215,7 +216,7 @@ class CinemaRibbonView(
         textSize = sp(12f)
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
-        fontFeatureSettings = "tnum"
+        if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
     }
     private val listHeader = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -261,8 +262,8 @@ class CinemaRibbonView(
         // Clip to gallery bounds with soft vertical fading edges so scrolled rows melt cleanly
         clipChildren = true
         clipToPadding = false
-        isVerticalFadingEdgeEnabled = true
-        setFadingEdgeLength(dp(18))
+        isVerticalFadingEdgeEnabled = !BuildConfig.IS_LITE
+        if (!BuildConfig.IS_LITE) setFadingEdgeLength(dp(18))
         isFocusable = true
         descendantFocusability = FOCUS_AFTER_DESCENDANTS
         overScrollMode = OVER_SCROLL_NEVER
@@ -293,8 +294,8 @@ class CinemaRibbonView(
     }
     private val settingsScroll = AnchoredScrollView().apply {
         isVerticalScrollBarEnabled = false
-        isVerticalFadingEdgeEnabled = true
-        setFadingEdgeLength(dp(18))
+        isVerticalFadingEdgeEnabled = !BuildConfig.IS_LITE
+        if (!BuildConfig.IS_LITE) setFadingEdgeLength(dp(18))
         overScrollMode = OVER_SCROLL_NEVER
         isFocusable = false
         clipChildren = true
@@ -311,8 +312,8 @@ class CinemaRibbonView(
     }
     private val inspectorScroll = AnchoredScrollView().apply {
         isVerticalScrollBarEnabled = false
-        isVerticalFadingEdgeEnabled = true
-        setFadingEdgeLength(dp(18))
+        isVerticalFadingEdgeEnabled = !BuildConfig.IS_LITE
+        if (!BuildConfig.IS_LITE) setFadingEdgeLength(dp(18))
         overScrollMode = OVER_SCROLL_NEVER
         isFocusable = false
         clipChildren = true
@@ -359,7 +360,7 @@ class CinemaRibbonView(
 
     private val drawerShell = FrostedContainer(context, blurEngine, cornerRadiusDp = 24f, veilAlpha = 80).apply {
         orientation = LinearLayout.VERTICAL
-        elevation = dp(14).toFloat()
+        if (!BuildConfig.IS_LITE && Build.VERSION.SDK_INT >= 21) elevation = dp(14).toFloat()
         clipChildren = true
         clipToPadding = true
         addView(columnsRow, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -500,7 +501,7 @@ class CinemaRibbonView(
                     textSize = sp(11f)
                     setTextColor(TvStyle.subtle)
                     includeFontPadding = false
-                    fontFeatureSettings = "tnum"
+                    if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
                 }
             } else null
 
@@ -792,11 +793,13 @@ class CinemaRibbonView(
         }
         settingsContent.addView(scaleRow, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
 
-        addSettingsRow(settingsSwitchRow(TvGlyph.CONTRAST, "轻量纯黑背景", "低性能盒子关闭实时毛玻璃", m.lightweight, focusKey = "lightweight") {
-            val next = settingsActions.onToggleLightweight()
-            refreshSurface()
-            next
-        })
+        if (!BuildConfig.IS_LITE) {
+            addSettingsRow(settingsSwitchRow(TvGlyph.CONTRAST, "轻量纯黑背景", "低性能盒子关闭实时毛玻璃", m.lightweight, focusKey = "lightweight") {
+                val next = settingsActions.onToggleLightweight()
+                refreshSurface()
+                next
+            })
+        }
         addSettingsRow(settingsSwitchRow(TvGlyph.STATION_LOGO, "智能台标识别", "内置台标与公共兜底自动补全", m.smartLogoLookup, focusKey = "smart_logo") {
             settingsActions.onToggleSmartLogoLookup()
         })
@@ -847,7 +850,12 @@ class CinemaRibbonView(
             val freed = settingsActions.onClearLogoCache()
             subTv.text = String.format(java.util.Locale.ROOT, "已清理 %.2f MB", freed / (1024f * 1024f))
         })
-        addSettingsRow(settingsActionRow(TvGlyph.ABOUT, "关于与按键说明", "SwiftTV ${m.versionName} · 遥控器快捷指南", focusKey = "about") { _, _ ->
+        addSettingsRow(settingsActionRow(
+            TvGlyph.ABOUT,
+            "关于与按键说明",
+            if (BuildConfig.IS_LITE) "SwiftTV Lite ${m.versionName} · 适配 Android 4.4+" else "SwiftTV ${m.versionName} · 遥控器快捷指南",
+            focusKey = "about"
+        ) { _, _ ->
             settingsActions.onShowAboutInfo()
         })
     }
@@ -1327,7 +1335,7 @@ class CinemaRibbonView(
         if (TvStyle.lightweight(context)) return
         v.animate().cancel()
         val s = if (focused) FOCUS_SCALE else 1f
-        v.elevation = 0f
+        if (Build.VERSION.SDK_INT >= 21) v.elevation = 0f
         v.animate().scaleX(s).scaleY(s).setDuration(140L).setInterpolator(TvStyle.springOut).start()
     }
 
@@ -1697,7 +1705,7 @@ private class DualPaneChannelRow(context: Context) : LinearLayout(context) {
         textSize = sp(11.5f)
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
-        fontFeatureSettings = "tnum"
+        if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
         maxLines = 1
         gravity = Gravity.CENTER
     }
@@ -1845,12 +1853,13 @@ private class DualPaneChannelRow(context: Context) : LinearLayout(context) {
             logoView.setPadding(0, 0, 0, 0)
         }
         if (!animate || TvStyle.lightweight(context)) {
-            scaleX = 1f; scaleY = 1f; elevation = 0f
+            scaleX = 1f; scaleY = 1f
+            if (Build.VERSION.SDK_INT >= 21) elevation = 0f
             return
         }
         animate().cancel()
         val s = if (focused) FOCUS_SCALE else 1f
-        elevation = 0f
+        if (Build.VERSION.SDK_INT >= 21) elevation = 0f
         animate().scaleX(s).scaleY(s).setDuration(140L).setInterpolator(TvStyle.springOut).start()
     }
 

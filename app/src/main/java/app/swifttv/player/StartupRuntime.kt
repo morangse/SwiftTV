@@ -25,13 +25,18 @@ import org.json.JSONObject
 import java.util.UUID
 
 class SwiftTvApplication : Application() {
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        AppCompatInit.attachBaseContext(this)
+    }
+
     override fun onCreate() { super.onCreate(); StartupRuntime.attach(this) }
 }
 
 /** All Android integration is here; launch decisions stay in StartupPolicy for regression tests. */
 object StartupRuntime {
-    const val EXTRA_REQUEST = "app.swifttv.player.STARTUP_REQUEST"
-    internal const val ACTION_RETRY = "app.swifttv.player.STARTUP_RETRY"
+    val EXTRA_REQUEST = "${BuildConfig.APPLICATION_ID}.STARTUP_REQUEST"
+    internal val ACTION_RETRY = "${BuildConfig.APPLICATION_ID}.STARTUP_RETRY"
     private val handler = Handler(Looper.getMainLooper())
     private var attached = false
     private var bootBroadcastSeen = false
@@ -101,7 +106,8 @@ object StartupRuntime {
     private fun retryIntent(c: Context) = Intent(c, StartupRetryReceiver::class.java).setAction(ACTION_RETRY)
     private fun cancel(c: Context) {
         tick?.let { handler.removeCallbacks(it) }; tick = null
-        val pi = PendingIntent.getBroadcast(c, 410, retryIntent(c), PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
+        val flags = PendingIntent.FLAG_NO_CREATE or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+        val pi = PendingIntent.getBroadcast(c, 410, retryIntent(c), flags)
         if (pi != null) { (c.getSystemService(Context.ALARM_SERVICE) as AlarmManager).cancel(pi); pi.cancel() }
     }
     private fun schedule(c: Context, delay: Long = 3000) {
@@ -110,7 +116,8 @@ object StartupRuntime {
         if (!enabled(c) || s.requestId.isEmpty() || s.suppressed || s.screenOff || now() > s.until) return
         val token = s.requestId
         val intent = retryIntent(c).putExtra(EXTRA_REQUEST, token)
-        val pi = PendingIntent.getBroadcast(c, 410, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+        val pi = PendingIntent.getBroadcast(c, 410, intent, flags)
         // Inexact, non-wakeup alarm: no exact-alarm permission and never powers on a sleeping TV.
         runCatching { (c.getSystemService(Context.ALARM_SERVICE) as AlarmManager).set(AlarmManager.ELAPSED_REALTIME, now() + delay, pi) }
             .onFailure { status(c, "定时恢复不可用：" + it.javaClass.simpleName) }
@@ -190,7 +197,8 @@ object StartupRuntime {
         val s = read(c); val time = now()
         val power = c.getSystemService(Context.POWER_SERVICE) as PowerManager
         val locked = (c.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
-        if (!StartupPolicy.canAttempt(s, enabled(c), power.isInteractive, locked, activityVisible, time, token)) {
+        val interactive = if (Build.VERSION.SDK_INT >= 20) power.isInteractive else @Suppress("DEPRECATION") power.isScreenOn
+        if (!StartupPolicy.canAttempt(s, enabled(c), interactive, locked, activityVisible, time, token)) {
             if (StartupPolicy.acceptsAutomaticEntry(s, enabled(c), token, time) && !activityVisible &&
                 s.attempts < StartupPolicy.MAX_ATTEMPTS) schedule(c, 5000)
             return
@@ -220,8 +228,8 @@ object StartupRuntime {
         val pkgUri = ("package:" + c.packageName).toUri()
         val first = when (kind) {
             "guard" -> Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            "listener" -> Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-            "overlay" -> Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri)
+            "listener" -> Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
+            "overlay" -> if (Build.VERSION.SDK_INT >= 23) Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkgUri) else Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri)
             else -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri)
         }
         return listOf(first, Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkgUri), Intent(Settings.ACTION_SETTINGS))

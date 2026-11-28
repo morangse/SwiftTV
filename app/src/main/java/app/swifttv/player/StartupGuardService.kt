@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ComponentName
 import android.os.Build
 import android.service.notification.NotificationListenerService
+import android.service.notification.StatusBarNotification
 import android.view.accessibility.AccessibilityEvent
 
 /** Only the foreground package is observed: no node content, key filtering, or global Home action. */
@@ -23,11 +24,22 @@ class StartupGuardService : AccessibilityService() {
 
 /** Optional system rebind point; notification contents are never read, stored, or exported. */
 class StartupRevivalListener : NotificationListenerService() {
-    override fun onListenerConnected() { super.onListenerConnected(); StartupRuntime.revived(this) }
+    override fun onNotificationPosted(sbn: StatusBarNotification?) {}
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {}
+
+    @android.annotation.SuppressLint("NewApi", "Override")
+    override fun onListenerConnected() {
+        if (Build.VERSION.SDK_INT >= 21) super.onListenerConnected()
+        StartupRuntime.revived(this)
+    }
+
+    @android.annotation.SuppressLint("Override")
     override fun onListenerDisconnected() {
         if (Build.VERSION.SDK_INT >= 24) {
             super.onListenerDisconnected()
             if (StartupRuntime.enabled(this)) requestRebind(ComponentName(this, StartupRevivalListener::class.java))
+        } else if (Build.VERSION.SDK_INT >= 21) {
+            super.onListenerDisconnected()
         }
     }
 }

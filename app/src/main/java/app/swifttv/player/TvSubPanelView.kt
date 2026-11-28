@@ -11,6 +11,7 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
+import android.os.Build
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.KeyEvent
@@ -192,8 +193,8 @@ class CinemaSheetView(
         }
     }.apply {
         isVerticalScrollBarEnabled = false
-        isVerticalFadingEdgeEnabled = true
-        setFadingEdgeLength(dp(18))
+        isVerticalFadingEdgeEnabled = !BuildConfig.IS_LITE
+        if (!BuildConfig.IS_LITE) setFadingEdgeLength(dp(18))
         overScrollMode = OVER_SCROLL_NEVER
         isFocusable = false
         clipChildren = true
@@ -218,7 +219,7 @@ class CinemaSheetView(
         minWidth = 0; minimumWidth = 0; minHeight = dp(30); minimumHeight = dp(30)
         setPadding(dp(14), dp(5), dp(14), dp(5))
         background = TvStyle.pillButton(context)
-        stateListAnimator = null
+        if (Build.VERSION.SDK_INT >= 21) stateListAnimator = null
         setOnClickListener { onBackClick?.invoke() }
     }
     private val footer = LinearLayout(context).apply {
@@ -260,7 +261,7 @@ class CinemaSheetView(
         isFocusable = false
         clipChildren = true
         clipToPadding = true
-        elevation = dp(12).toFloat()
+        if (!BuildConfig.IS_LITE && Build.VERSION.SDK_INT >= 21) elevation = dp(12).toFloat()
         setPadding(dp(22), dp(20), dp(22), dp(16))
         addView(headerBlock, LayoutParams(-1, -2))
         addView(headerDivider, LayoutParams(-1, 1))
@@ -445,7 +446,7 @@ class CinemaSheetView(
                 if (!TvStyle.lightweight(context)) {
                     v.animate().cancel()
                     val s = if (focused) 1.022f else 1f
-                    v.elevation = 0f
+                    if (Build.VERSION.SDK_INT >= 21) v.elevation = 0f
                     v.animate().scaleX(s).scaleY(s).setDuration(140L).setInterpolator(TvStyle.springOut).start()
                 }
             }
@@ -559,7 +560,7 @@ class CinemaModalDialog(
         orientation = LinearLayout.VERTICAL
         isClickable = true
         setPadding(dp(28), dp(24), dp(28), dp(22))
-        elevation = dp(18).toFloat()
+        if (!BuildConfig.IS_LITE && Build.VERSION.SDK_INT >= 21) elevation = dp(18).toFloat()
     }
 
     init {
@@ -578,8 +579,8 @@ class CinemaModalDialog(
         if (message.isNotEmpty()) {
             val msgScroll = ScrollView(context).apply {
                 isVerticalScrollBarEnabled = false
-                isVerticalFadingEdgeEnabled = true
-                setFadingEdgeLength(dp(16))
+                isVerticalFadingEdgeEnabled = !BuildConfig.IS_LITE
+                if (!BuildConfig.IS_LITE) setFadingEdgeLength(dp(16))
                 addView(TextView(context).apply {
                     text = message
                     textSize = sp(14f)
@@ -672,7 +673,7 @@ class CinemaModalDialog(
         setTextColor(TvStyle.ink)
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         background = if (primary) TvStyle.primaryPillButton(context) else TvStyle.pillButton(context)
-        stateListAnimator = null
+        if (Build.VERSION.SDK_INT >= 21) stateListAnimator = null
         setOnFocusChangeListener { v, focused ->
             setTextColor(if (focused) TvStyle.inkOnPorcelain else TvStyle.ink)
             typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)

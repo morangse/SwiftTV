@@ -11,6 +11,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.view.TextureView
@@ -33,9 +34,9 @@ import java.lang.ref.WeakReference
 class CinemaBlurEngine(private val context: Context) {
     private val bufW = 128
     private val bufH = 72
-    private val bitmap: Bitmap = createBitmap(bufW, bufH)
-    private val pixels = IntArray(bufW * bufH)
-    private val scratch = IntArray(bufW * bufH)
+    private val bitmap: Bitmap? = if (BuildConfig.IS_LITE) null else createBitmap(bufW, bufH)
+    private val pixels: IntArray? = if (BuildConfig.IS_LITE) null else IntArray(bufW * bufH)
+    private val scratch: IntArray? = if (BuildConfig.IS_LITE) null else IntArray(bufW * bufH)
     private val handler = Handler(Looper.getMainLooper())
     private val consumers = mutableListOf<WeakReference<View>>()
     private val rootLoc = IntArray(2)
@@ -50,6 +51,7 @@ class CinemaBlurEngine(private val context: Context) {
     }
 
     fun registerConsumer(view: View) {
+        if (BuildConfig.IS_LITE) return
         if (consumers.none { it.get() === view }) {
             consumers.add(WeakReference(view))
         }
@@ -57,6 +59,7 @@ class CinemaBlurEngine(private val context: Context) {
     }
 
     fun syncState() {
+        if (BuildConfig.IS_LITE) return
         consumers.removeAll { it.get() == null }
         val shouldRun = !TvStyle.lightweight(context) && consumers.any { ref ->
             val v = ref.get()
@@ -79,7 +82,10 @@ class CinemaBlurEngine(private val context: Context) {
     private val sampleTick = object : Runnable {
         override fun run() {
             if (!running) return
-            if (TvStyle.lightweight(context)) {
+            val targetBitmap = bitmap
+            val px = pixels
+            val tmp = scratch
+            if (BuildConfig.IS_LITE || TvStyle.lightweight(context) || targetBitmap == null || px == null || tmp == null) {
                 hasValidFrame = false
                 running = false
                 return
@@ -90,14 +96,14 @@ class CinemaBlurEngine(private val context: Context) {
                 pv.getLocationOnScreen(rootLoc)
                 rootWidth = pv.width
                 rootHeight = pv.height
-                val captured = runCatching { tv.getBitmap(bitmap) }.getOrNull()
+                val captured = runCatching { tv.getBitmap(targetBitmap) }.getOrNull()
                 if (captured != null) {
-                    bitmap.getPixels(pixels, 0, bufW, 0, 0, bufW, bufH)
-                    blurSeparable(pixels, scratch, bufW, bufH, radius = 6)
-                    blurSeparable(pixels, scratch, bufW, bufH, radius = 5)
-                    blurSeparable(pixels, scratch, bufW, bufH, radius = 3)
-                    applyDarkGlassMaterial(pixels)
-                    bitmap.setPixels(pixels, 0, bufW, 0, 0, bufW, bufH)
+                    targetBitmap.getPixels(px, 0, bufW, 0, 0, bufW, bufH)
+                    blurSeparable(px, tmp, bufW, bufH, radius = 6)
+                    blurSeparable(px, tmp, bufW, bufH, radius = 5)
+                    blurSeparable(px, tmp, bufW, bufH, radius = 3)
+                    applyDarkGlassMaterial(px)
+                    targetBitmap.setPixels(px, 0, bufW, 0, 0, bufW, bufH)
                     hasValidFrame = true
                     consumers.forEach { it.get()?.takeIf(View::isShown)?.invalidate() }
                 }
@@ -107,7 +113,8 @@ class CinemaBlurEngine(private val context: Context) {
     }
 
     fun drawBlurredSlice(canvas: Canvas, targetView: View, viewLoc: IntArray, srcRect: Rect, dstRect: RectF, paint: Paint): Boolean {
-        if (!hasValidFrame || TvStyle.lightweight(context) || rootWidth <= 0 || rootHeight <= 0) return false
+        val targetBitmap = bitmap
+        if (BuildConfig.IS_LITE || targetBitmap == null || !hasValidFrame || TvStyle.lightweight(context) || rootWidth <= 0 || rootHeight <= 0) return false
         targetView.getLocationOnScreen(viewLoc)
         val relLeft = (viewLoc[0] - rootLoc[0]).toFloat() / rootWidth
         val relTop = (viewLoc[1] - rootLoc[1]).toFloat() / rootHeight
@@ -119,7 +126,7 @@ class CinemaBlurEngine(private val context: Context) {
         val sb = (relBottom * bufH).toInt().coerceIn(st + 1, bufH)
         srcRect.set(sl, st, sr, sb)
         dstRect.set(0f, 0f, targetView.width.toFloat(), targetView.height.toFloat())
-        canvas.drawBitmap(bitmap, srcRect, dstRect, paint)
+        canvas.drawBitmap(targetBitmap, srcRect, dstRect, paint)
         return true
     }
 
@@ -219,22 +226,31 @@ open class FrostedContainer(
     }
 
     init {
-        setWillNotDraw(false)
-        blurEngine?.registerConsumer(this)
+        if (BuildConfig.IS_LITE) {
+            background = GradientDrawable().apply {
+                cornerRadius = TvStyle.dpF(context, cornerRadiusDp)
+                setColor(Color.argb(248, 16, 20, 28))
+                setStroke(TvStyle.dp(context, 1).coerceAtLeast(1), Color.argb(46, 232, 240, 255))
+            }
+        } else {
+            setWillNotDraw(false)
+            blurEngine?.registerConsumer(this)
+        }
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        blurEngine?.registerConsumer(this)
+        if (!BuildConfig.IS_LITE) blurEngine?.registerConsumer(this)
     }
 
     override fun onVisibilityChanged(changedView: View, visibility: Int) {
         super.onVisibilityChanged(changedView, visibility)
-        blurEngine?.syncState()
+        if (!BuildConfig.IS_LITE) blurEngine?.syncState()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (BuildConfig.IS_LITE) return
         val r = TvStyle.dpF(context, cornerRadiusDp)
         boundsRect.set(0f, 0f, w.toFloat(), h.toFloat())
         val inset = rimPaint.strokeWidth / 2f
@@ -259,6 +275,10 @@ open class FrostedContainer(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        if (BuildConfig.IS_LITE) {
+            super.dispatchDraw(canvas)
+            return
+        }
         canvas.withClip(clipPath) {
             val drewBlur = blurEngine?.drawBlurredSlice(this, this@FrostedContainer, loc, srcRect, dstRect, bitmapPaint) == true
             if (drewBlur) {

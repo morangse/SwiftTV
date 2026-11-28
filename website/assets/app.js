@@ -527,6 +527,13 @@
     setHref("heroTvDownload", data.tvApk.url);
     setHref("dlTvBtn", data.tvApk.url);
 
+    if (data.liteApk) {
+      setText("dlLiteVersion", tag);
+      setText("dlLiteSize", data.liteApk.sizeLabel);
+      setHref("dlLiteBtn", data.liteApk.url);
+      if (data.liteApk.sha256) setText("dlLiteSha", data.liteApk.sha256);
+    }
+
     const derivedInstVer = (data.installerApk?.name || fb.installerApk?.name || "").match(/SwiftTV-Installer-(.+)\.apk$/i);
     const instVer = data.instVerLabel || (derivedInstVer ? `v${derivedInstVer[1]}` : "v1.1.2");
     setText("dlInstVersion", instVer);
@@ -550,13 +557,17 @@
       releaseUrl: fb.releaseUrl,
       checksumsUrl: fb.checksumsUrl,
       tvApk: fb.tvApk,
+      liteApk: fb.liteApk,
       installerApk: fb.installerApk,
       instVerLabel: fbInstMatch ? `v${fbInstMatch[1]}` : "v1.1.2"
     });
   }
 
   document.getElementById("copyTvSha")?.addEventListener("click", () => {
-    copyText(document.getElementById("dlTvSha")?.textContent || "", "电视版 SHA-256");
+    copyText(document.getElementById("dlTvSha")?.textContent || "", "标准版 SHA-256");
+  });
+  document.getElementById("copyLiteSha")?.addEventListener("click", () => {
+    copyText(document.getElementById("dlLiteSha")?.textContent || "", "Lite 版 SHA-256");
   });
   document.getElementById("copyInstSha")?.addEventListener("click", () => {
     copyText(document.getElementById("dlInstSha")?.textContent || "", "安装助手 SHA-256");
@@ -573,6 +584,7 @@
       const json = await resp.json();
       const assets = Array.isArray(json.assets) ? json.assets : [];
       const tvAsset = assets.find((a) => /^SwiftTV-\d.*\.apk$/i.test(a.name));
+      const liteAsset = assets.find((a) => /^SwiftTV-Lite-\d.*\.apk$/i.test(a.name));
       const instAsset = assets.find((a) => /^SwiftTV-Installer-.*\.apk$/i.test(a.name));
       const sumAsset = assets.find((a) => a.name === "SHA256SUMS.txt");
 
@@ -588,6 +600,12 @@
             sizeLabel: formatBytes(tvAsset.size) || fb.tvApk.sizeLabel,
             sha256: json.tag_name === fb.tag ? fb.tvApk.sha256 : "见 SHA256SUMS.txt"
           },
+          liteApk: liteAsset ? {
+            name: liteAsset.name,
+            url: liteAsset.browser_download_url,
+            sizeLabel: formatBytes(liteAsset.size) || fb.liteApk?.sizeLabel || "3.3 MB",
+            sha256: json.tag_name === fb.tag ? (fb.liteApk?.sha256 || "见 SHA256SUMS.txt") : "见 SHA256SUMS.txt"
+          } : fb.liteApk,
           installerApk: {
             name: instAsset.name,
             url: instAsset.browser_download_url,

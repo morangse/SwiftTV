@@ -14,8 +14,13 @@
 -keep class androidx.media3.exoplayer.hls.HlsMediaSource$Factory {
     public <init>(androidx.media3.datasource.DataSource$Factory);
 }
+-keep class androidx.media3.exoplayer.rtsp.RtspMediaSource$Factory {
+    public <init>();
+}
 
-# Optional JVM TLS providers referenced reflectively by OkHttp 4.12 on non-Android JVMs.
+# Optional JVM/legacy annotations referenced reflectively by OkHttp 3.12 / 4.12 and Okio.
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
+-dontwarn javax.annotation.**
+-dontwarn org.codehaus.mojo.animal_sniffer.**

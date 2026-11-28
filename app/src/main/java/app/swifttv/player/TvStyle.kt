@@ -15,8 +15,8 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.view.animation.Interpolator
-import android.view.animation.PathInterpolator
 import androidx.core.content.edit
+import androidx.core.view.animation.PathInterpolatorCompat
 
 enum class FontScaleMode(val key: String, val title: String, val multiplier: Float) {
     STANDARD("standard", "标准", 1.0f),
@@ -58,8 +58,8 @@ object TvStyle {
     const val EXIT_MS = 175L
     const val FOCUS_MS = 165L
 
-    val springOut: Interpolator = PathInterpolator(0.22f, 1f, 0.36f, 1f)
-    val easeIn: Interpolator = PathInterpolator(0.32f, 0f, 0.67f, 0f)
+    val springOut: Interpolator = PathInterpolatorCompat.create(0.22f, 1f, 0.36f, 1f)
+    val easeIn: Interpolator = PathInterpolatorCompat.create(0.32f, 0f, 0.67f, 0f)
 
     fun dp(c: Context, n: Int) = (n * c.resources.displayMetrics.density).toInt()
     fun dpF(c: Context, n: Float) = n * c.resources.displayMetrics.density
@@ -79,6 +79,7 @@ object TvStyle {
     fun sp(c: Context, baseSp: Float): Float = baseSp * fontScaleMode(c).multiplier
 
     fun lightweight(c: Context): Boolean {
+        if (BuildConfig.IS_LITE) return true
         val p = c.getSharedPreferences("appearance", Context.MODE_PRIVATE)
         if (p.contains("lightweight")) return p.getBoolean("lightweight", false)
         val manager = c.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
@@ -96,7 +97,7 @@ object TvStyle {
         c.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit { putBoolean("smartLogoLookup", value) }
     }
 
-    /** Directional 135-degree optical crystal surface matching the SwiftTV obsidian icon. */
+    /** Directional 135-degree optical crystal surface matching the SwiftTV obsidian icon (flat in Lite). */
     fun specularSurface(
         c: Context,
         fillTopLeft: Int,
@@ -105,36 +106,60 @@ object TvStyle {
         rimTopLeft: Int = Color.argb(54, 240, 246, 255),
         rimBottomRight: Int = Color.argb(14, 255, 255, 255),
         strokeDp: Float = 1f
-    ): Drawable = SpecularRoundedDrawable(
-        fillStart = fillTopLeft,
-        fillEnd = fillBottomRight,
-        radiusPx = dpF(c, radiusDp),
-        rimStart = rimTopLeft,
-        rimEnd = rimBottomRight,
-        strokePx = dpF(c, strokeDp).coerceAtLeast(1f)
-    )
+    ): Drawable = if (BuildConfig.IS_LITE) {
+        GradientDrawable().apply {
+            cornerRadius = dpF(c, radiusDp)
+            setColor(fillTopLeft)
+            setStroke(dpF(c, strokeDp).toInt().coerceAtLeast(1), rimTopLeft)
+        }
+    } else {
+        SpecularRoundedDrawable(
+            fillStart = fillTopLeft,
+            fillEnd = fillBottomRight,
+            radiusPx = dpF(c, radiusDp),
+            rimStart = rimTopLeft,
+            rimEnd = rimBottomRight,
+            strokePx = dpF(c, strokeDp).coerceAtLeast(1f)
+        )
+    }
 
     /** Tactile tvOS Porcelain White surface for focused list rows, tabs, and primary actions. */
-    fun porcelainSurface(c: Context, radiusDp: Float = ROW_RADIUS.toFloat()): Drawable = SpecularRoundedDrawable(
-        fillStart = Color.rgb(248, 250, 253),
-        fillEnd = Color.rgb(232, 237, 245),
-        radiusPx = dpF(c, radiusDp),
-        rimStart = Color.WHITE,
-        rimEnd = Color.rgb(220, 227, 238),
-        strokePx = dpF(c, 1f).coerceAtLeast(1f),
-        drawTopSheen = false
-    )
+    fun porcelainSurface(c: Context, radiusDp: Float = ROW_RADIUS.toFloat()): Drawable = if (BuildConfig.IS_LITE) {
+        GradientDrawable().apply {
+            cornerRadius = dpF(c, radiusDp)
+            setColor(porcelain)
+            setStroke(dp(c, 1).coerceAtLeast(1), Color.WHITE)
+        }
+    } else {
+        SpecularRoundedDrawable(
+            fillStart = Color.rgb(248, 250, 253),
+            fillEnd = Color.rgb(232, 237, 245),
+            radiusPx = dpF(c, radiusDp),
+            rimStart = Color.WHITE,
+            rimEnd = Color.rgb(220, 227, 238),
+            strokePx = dpF(c, 1f).coerceAtLeast(1f),
+            drawTopSheen = false
+        )
+    }
 
     /** Subtle translucent crystal pill for active category indicator or metadata chips. */
-    fun activeCrystalPill(c: Context, radiusDp: Float = PILL_RADIUS.toFloat()): Drawable = specularSurface(
-        c,
-        fillTopLeft = Color.argb(46, 244, 248, 255),
-        fillBottomRight = Color.argb(28, 226, 234, 248),
-        radiusDp = radiusDp,
-        rimTopLeft = Color.argb(76, 255, 255, 255),
-        rimBottomRight = Color.argb(24, 255, 255, 255),
-        strokeDp = 1f
-    )
+    fun activeCrystalPill(c: Context, radiusDp: Float = PILL_RADIUS.toFloat()): Drawable = if (BuildConfig.IS_LITE) {
+        GradientDrawable().apply {
+            cornerRadius = dpF(c, radiusDp)
+            setColor(Color.argb(46, 244, 248, 255))
+            setStroke(dp(c, 1).coerceAtLeast(1), Color.argb(72, 255, 255, 255))
+        }
+    } else {
+        specularSurface(
+            c,
+            fillTopLeft = Color.argb(46, 244, 248, 255),
+            fillBottomRight = Color.argb(28, 226, 234, 248),
+            radiusDp = radiusDp,
+            rimTopLeft = Color.argb(76, 255, 255, 255),
+            rimBottomRight = Color.argb(24, 255, 255, 255),
+            strokeDp = 1f
+        )
+    }
 
     fun badge(c: Context, onPorcelain: Boolean = false): Drawable = GradientDrawable().apply {
         setColor(if (onPorcelain) Color.argb(22, 10, 13, 19) else Color.argb(28, 244, 248, 255))

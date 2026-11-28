@@ -215,9 +215,10 @@ class ChannelLogos(context: Context, private val network: Network? = null) : Aut
     private val assets = appContext.assets
     private val diskCacheDir = File(appContext.cacheDir, "remote-logos").apply { mkdirs() }
     private val localWorker = Executors.newFixedThreadPool(2)
-    private val remoteWorker = Executors.newFixedThreadPool(4)
+    private val remoteWorker = Executors.newFixedThreadPool(if (BuildConfig.IS_LITE) 2 else 4)
     private val ui = Handler(Looper.getMainLooper())
     private val cacheBytes: Int = run {
+        if (BuildConfig.IS_LITE) return@run 1280 * 1024
         val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         if (am != null && (am.isLowRamDevice || am.memoryClass <= 96)) 1280 * 1024 else 4 * 1024 * 1024
     }
@@ -381,7 +382,9 @@ class ChannelLogos(context: Context, private val network: Network? = null) : Aut
         inScaled = false
         inPreferredConfig = Bitmap.Config.ARGB_8888
         inSampleSize = 1
-        while (outWidth / inSampleSize > 256 || outHeight / inSampleSize > 128) inSampleSize *= 2
+        val maxW = if (BuildConfig.IS_LITE) 128 else 256
+        val maxH = if (BuildConfig.IS_LITE) 64 else 128
+        while (outWidth / inSampleSize > maxW || outHeight / inSampleSize > maxH) inSampleSize *= 2
     }
 
     override fun close() {

@@ -84,15 +84,28 @@ object HardwareCodecProbe {
         return computed
     }
 
+    private fun allCodecInfos(): List<MediaCodecInfo> = if (Build.VERSION.SDK_INT >= 21) {
+        MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.toList()
+    } else {
+        @Suppress("DEPRECATION")
+        val count = MediaCodecList.getCodecCount()
+        @Suppress("DEPRECATION")
+        (0 until count).map { MediaCodecList.getCodecInfoAt(it) }
+    }
+
     fun supportsHardwareFormat(mime: String?, width: Int, height: Int, frameRate: Float): Boolean = runCatching {
         if (mime.isNullOrBlank() || width <= 0 || height <= 0) return@runCatching false
         val rate = if (frameRate > 0f && frameRate.isFinite()) frameRate.toDouble() else 25.0
-        MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.any { codec ->
+        allCodecInfos().any { codec ->
             isHardwareInfo(codec) &&
                 codec.supportedTypes.any { it.equals(mime, true) } &&
-                codec.getCapabilitiesForType(mime).videoCapabilities?.let { vc ->
-                    vc.areSizeAndRateSupported(width, height, rate) || vc.isSizeSupported(width, height) && rate <= 30.0
-                } == true
+                if (Build.VERSION.SDK_INT >= 21) {
+                    codec.getCapabilitiesForType(mime).videoCapabilities?.let { vc ->
+                        vc.areSizeAndRateSupported(width, height, rate) || vc.isSizeSupported(width, height) && rate <= 30.0
+                    } == true
+                } else {
+                    width <= 1920 && height <= 1080
+                }
         }
     }.getOrDefault(false)
 
@@ -105,7 +118,7 @@ object HardwareCodecProbe {
     private fun probeDevice(context: Context): DeviceCodecProfile = runCatching {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val lowRam = am?.let { it.isLowRamDevice || it.memoryClass <= 96 } ?: false
-        val descriptors = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.mapNotNull { info ->
+        val descriptors = allCodecInfos().mapNotNull { info ->
             if (info.isEncoder) return@mapNotNull null
             val videoTypes = info.supportedTypes.filter { it.startsWith("video/", true) }
             if (videoTypes.isEmpty()) return@mapNotNull null
@@ -114,11 +127,15 @@ object HardwareCodecProbe {
             var s4k50 = false
             var s4k30 = false
             var s1080 = false
-            for (type in videoTypes) {
-                val vc = runCatching { info.getCapabilitiesForType(type).videoCapabilities }.getOrNull() ?: continue
-                if (runCatching { vc.areSizeAndRateSupported(1920, 1080, 25.0) }.getOrDefault(false)) s1080 = true
-                if (runCatching { vc.areSizeAndRateSupported(3840, 2160, 25.0) }.getOrDefault(false)) s4k30 = true
-                if (runCatching { vc.areSizeAndRateSupported(3840, 2160, 50.0) }.getOrDefault(false)) s4k50 = true
+            if (Build.VERSION.SDK_INT >= 21) {
+                for (type in videoTypes) {
+                    val vc = runCatching { info.getCapabilitiesForType(type).videoCapabilities }.getOrNull() ?: continue
+                    if (runCatching { vc.areSizeAndRateSupported(1920, 1080, 25.0) }.getOrDefault(false)) s1080 = true
+                    if (runCatching { vc.areSizeAndRateSupported(3840, 2160, 25.0) }.getOrDefault(false)) s4k30 = true
+                    if (runCatching { vc.areSizeAndRateSupported(3840, 2160, 50.0) }.getOrDefault(false)) s4k50 = true
+                }
+            } else {
+                s1080 = true
             }
             CodecDescriptor(info.name, false, hw, sw, videoTypes, s4k50, s4k30, s1080)
         }

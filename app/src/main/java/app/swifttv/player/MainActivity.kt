@@ -180,9 +180,11 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             visibility = View.GONE
             clipChildren = false
             clipToPadding = false
-            setOnApplyWindowInsetsListener { view, insets ->
-                view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
-                insets
+            if (Build.VERSION.SDK_INT >= 20) {
+                setOnApplyWindowInsetsListener { view, insets ->
+                    view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                    insets
+                }
             }
         }
         root.addView(overlay, FrameLayout.LayoutParams(-1, -1))
@@ -208,7 +210,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(48), dp(42), dp(48), dp(40))
-            addView(text("SwiftTV", 13, TvStyle.subtle, true))
+            addView(text(appDisplayName(), 13, TvStyle.subtle, true))
             addView(text("静享此刻直播。", 32, ink, true).apply { setPadding(0, dp(10), 0, dp(10)) })
             addView(text("纯本地播放器 · 请扫码、通过手机安装助手或输入地址导入频道源。", 15, muted).apply {
                 gravity = Gravity.CENTER
@@ -223,7 +225,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 background = TvStyle.porcelainSurface(this@MainActivity, 999f)
                 minHeight = dp(46); minimumHeight = dp(46)
                 setPadding(dp(28), dp(12), dp(28), dp(12))
-                stateListAnimator = null
+                if (Build.VERSION.SDK_INT >= 21) stateListAnimator = null
                 setOnClickListener { showPairing(onboarding = true) }
             }
             addView(btn, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(28) })
@@ -399,6 +401,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         overlay.setOnClickListener(null)
         overlay.isClickable = false
         overlay.removeAllViews(); overlay.visibility = View.VISIBLE; overlayMode = mode
+        landing.visibility = View.GONE
         hud.visibility = View.GONE
         blurEngine.syncState()
     }
@@ -549,7 +552,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                     "· 菜单键：一键直达设置或关闭抽屉\n" +
                     "· 翻页键 / CH±：快速翻页浏览长频道列表"
                 showModal(
-                    title = "关于 SwiftTV ${BuildConfig.VERSION_NAME}",
+                    title = "关于 ${appDisplayName()} ${BuildConfig.VERSION_NAME}",
                     message = guide,
                     primaryLabel = "关闭",
                     secondaryLabel = null,
@@ -995,7 +998,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             gravity = Gravity.CENTER_VERTICAL
             isClickable = true
             setPadding(dp(42), dp(32), dp(42), dp(32))
-            elevation = dp(14).toFloat()
+            if (!BuildConfig.IS_LITE && Build.VERSION.SDK_INT >= 21) elevation = dp(14).toFloat()
         }
         val cardW = minOf(dp(800), (resources.displayMetrics.widthPixels * 0.90f).toInt())
         overlay.addView(content, FrameLayout.LayoutParams(cardW, -2, Gravity.CENTER).apply {
@@ -1032,7 +1035,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             background = if (primary) TvStyle.primaryPillButton(this@MainActivity) else TvStyle.pillButton(this@MainActivity)
             minHeight = dp(40); minimumHeight = dp(40)
             setPadding(dp(20), dp(8), dp(20), dp(8))
-            stateListAnimator = null
+            if (Build.VERSION.SDK_INT >= 21) stateListAnimator = null
             setOnFocusChangeListener { _, focused ->
                 setTextColor(if (focused) TvStyle.inkOnPorcelain else ink)
                 typeface = Typeface.create("sans-serif-medium", if (focused) Typeface.BOLD else Typeface.NORMAL)
@@ -1214,11 +1217,13 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     }
 
     private fun localAddress(): String? {
-        val manager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
-        val active = manager.activeNetwork
-        val address = active?.let { manager.getLinkProperties(it) }?.linkAddresses
-            ?.map { it.address }?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress
-        if (address != null) return address
+        if (Build.VERSION.SDK_INT >= 23) {
+            val manager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            val active = manager.activeNetwork
+            val address = active?.let { manager.getLinkProperties(it) }?.linkAddresses
+                ?.map { it.address }?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress
+            if (address != null) return address
+        }
         return runCatching {
             NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
                 .flatMap { it.inetAddresses.toList() }.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress
@@ -1450,7 +1455,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         if (overlayMode == "channels" && overlay.isVisible && ribbon?.handleBack() == true) return
         if (overlay.isVisible) { backThroughMenus(); return }
         showModal(
-            title = "退出 SwiftTV 直播？",
+            title = "退出 ${appDisplayName()} 直播？",
             message = "退出后本次不会自动拉回界面；下次电视开机或待机唤醒时恢复上次观看频道。",
             primaryLabel = "退出到桌面",
             secondaryLabel = "继续观看"
@@ -1460,6 +1465,8 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             true
         }
     }
+
+    private fun appDisplayName(): String = if (BuildConfig.IS_LITE) "SwiftTV Lite" else "SwiftTV"
 
     private fun interceptKeyEvent(event: KeyEvent): Boolean {
         if (closingOverlay) return true

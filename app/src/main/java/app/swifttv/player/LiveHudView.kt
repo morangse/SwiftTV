@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.ClipDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
+import android.os.Build
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -37,7 +38,7 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        fontFeatureSettings = "tnum"
+        if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
     }
     private val logo = ImageView(context).apply {
         scaleType = ImageView.ScaleType.FIT_CENTER
@@ -60,14 +61,14 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         includeFontPadding = false
         background = TvStyle.badge(context, onPorcelain = false)
         setPadding(dp(8), dp(3), dp(8), dp(3))
-        fontFeatureSettings = "tnum"
+        if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
         visibility = GONE
     }
     private val clockView = TextView(context).apply {
         textSize = sp(12.5f)
         setTextColor(TvStyle.subtle)
         includeFontPadding = false
-        fontFeatureSettings = "tnum"
+        if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
     }
     private val messageView = TextView(context).apply {
         textSize = sp(13f)
@@ -98,7 +99,7 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(20), dp(14), dp(22), dp(14))
         minimumWidth = dp((450f * (1f + 0.32f * (TvStyle.fontScale(context) - 1f).coerceAtLeast(0f))).toInt())
-        elevation = dp(8).toFloat()
+        if (!BuildConfig.IS_LITE && Build.VERSION.SDK_INT >= 21) elevation = dp(8).toFloat()
         visibility = GONE
 
         addView(numberView, LayoutParams(-2, -2).apply { rightMargin = dp(12) })
@@ -169,7 +170,7 @@ class LiveHudView(context: Context, blurEngine: CinemaBlurEngine? = null) : Fros
             logo.visibility = GONE
             divider.visibility = GONE
         }
-        titleView.text = channel?.name ?: "SwiftTV"
+        titleView.text = channel?.name ?: if (BuildConfig.IS_LITE) "SwiftTV Lite" else "SwiftTV"
         clockView.text = clockFormat.format(Date(nowMs))
 
         val badgeText = spec.badge()
@@ -205,7 +206,7 @@ class NumberPadOsdView(context: Context, blurEngine: CinemaBlurEngine? = null) :
         textSize = sp(26f)
         setTextColor(TvStyle.ink)
         includeFontPadding = false
-        fontFeatureSettings = "tnum"
+        if (Build.VERSION.SDK_INT >= 21) fontFeatureSettings = "tnum"
         typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
     }
     private val nameView = TextView(context).apply {
@@ -221,7 +222,7 @@ class NumberPadOsdView(context: Context, blurEngine: CinemaBlurEngine? = null) :
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(18), dp(10), dp(18), dp(10))
-        elevation = dp(8).toFloat()
+        if (!BuildConfig.IS_LITE && Build.VERSION.SDK_INT >= 21) elevation = dp(8).toFloat()
         visibility = GONE
         addView(digitsView, LayoutParams(-2, -2))
         addView(nameView, LayoutParams(-2, -2))
@@ -272,7 +273,7 @@ class CinemaToastBanner(context: Context, blurEngine: CinemaBlurEngine? = null) 
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(18), dp(10), dp(20), dp(10))
-        elevation = dp(10).toFloat()
+        if (!BuildConfig.IS_LITE && Build.VERSION.SDK_INT >= 21) elevation = dp(10).toFloat()
         visibility = GONE
         isFocusable = false
         isClickable = false

@@ -3,6 +3,7 @@ package app.swifttv.player
 import okhttp3.Cache
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.ConnectionSpec
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -33,6 +34,7 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
     // readTimeout still bounds a stalled socket, and the player bounds first-frame waits.
     val client = OkHttpClient.Builder().connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(8, TimeUnit.SECONDS).callTimeout(0, TimeUnit.SECONDS)
+        .connectionSpecs(listOf(ConnectionSpec.MODERN_TLS, ConnectionSpec.COMPATIBLE_TLS, ConnectionSpec.CLEARTEXT))
         .apply { if (tlsConfig != null) sslSocketFactory(tlsConfig.sslSocketFactory, tlsConfig.trustManager) }
         .build()
 
@@ -63,9 +65,9 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
                 if (lastModified.isNotEmpty()) header("If-Modified-Since", lastModified)
             }.build()
         requestClient.newCall(request).execute().use { response ->
-            if (response.code == 304) return Download("", etag, lastModified, true)
-            require(response.isSuccessful) { "订阅服务器返回 HTTP " + response.code }
-            val body = response.body ?: error("订阅没有返回内容")
+            if (OkHttpCompat.code(response) == 304) return Download("", etag, lastModified, true)
+            require(response.isSuccessful) { "订阅服务器返回 HTTP " + OkHttpCompat.code(response) }
+            val body = OkHttpCompat.body(response) ?: error("订阅没有返回内容")
             require(body.contentLength() <= M3uParser.MAX_BYTES) { "频道表不能超过 2 MB" }
             val bytes = body.byteStream().use { it.readBytesBounded(M3uParser.MAX_BYTES) }
             val text = TextDecoding.decodePlaylistBytes(bytes)
@@ -81,8 +83,8 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
         httpUri(url)
         val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
         requestClient.newCall(request).execute().use { response ->
-            require(response.isSuccessful) { "地址返回 HTTP " + response.code }
-            val body = response.body ?: error("服务器没有返回内容")
+            require(response.isSuccessful) { "地址返回 HTTP " + OkHttpCompat.code(response) }
+            val body = OkHttpCompat.body(response) ?: error("服务器没有返回内容")
             val etag = response.header("ETag").orEmpty()
             val lastModified = response.header("Last-Modified").orEmpty()
             body.byteStream().use { input ->
@@ -129,8 +131,8 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
                 httpUri(encoded)
                 val req = Request.Builder().url(encoded).header("User-Agent", USER_AGENT).build()
                 logoClient.newCall(req).execute().use { resp ->
-                    require(resp.isSuccessful) { "Logo HTTP " + resp.code }
-                    val body = resp.body ?: error("Empty logo")
+                    require(resp.isSuccessful) { "Logo HTTP " + OkHttpCompat.code(resp) }
+                    val body = OkHttpCompat.body(resp) ?: error("Empty logo")
                     require(body.contentLength() <= maxBytes) { "Logo too large" }
                     return body.byteStream().use { it.readBytesBounded(maxBytes) }
                 }
@@ -147,8 +149,8 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
         val request = Request.Builder().url(url).header("User-Agent", USER_AGENT)
             .header("Accept-Encoding", "gzip").build()
         requestClient.newCall(request).execute().use { response ->
-            require(response.isSuccessful) { "节目单服务器返回 HTTP " + response.code }
-            val body = response.body ?: error("节目单没有返回内容")
+            require(response.isSuccessful) { "节目单服务器返回 HTTP " + OkHttpCompat.code(response) }
+            val body = OkHttpCompat.body(response) ?: error("节目单没有返回内容")
             require(body.contentLength() <= maxCompressedBytes) { "节目单文件过大" }
             val boundedRaw = BoundedInputStream(body.byteStream(), maxCompressedBytes, "节目单下载体积超限")
             val buffered = java.io.BufferedInputStream(boundedRaw, 8192)
@@ -175,9 +177,9 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
             override fun onResponse(call: Call, response: Response) {
                 val result = runCatching {
                     response.use {
-                        require(it.isSuccessful) { "线路服务器返回 HTTP " + it.code }
+                        require(it.isSuccessful) { "线路服务器返回 HTTP " + OkHttpCompat.code(it) }
                         val contentType = it.header("Content-Type").orEmpty().lowercase(java.util.Locale.ROOT)
-                        val body = it.body ?: error("线路没有返回数据")
+                        val body = OkHttpCompat.body(it) ?: error("线路没有返回数据")
                         val buffer = ByteArray(16384)
                         var offset = 0
                         var mime: String? = null
@@ -259,9 +261,9 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
                     try {
                         response.use { resp ->
                             if (!resp.isSuccessful) {
-                                errMessage = "HTTP " + resp.code
+                                errMessage = "HTTP " + OkHttpCompat.code(resp)
                             } else {
-                                val body = resp.body
+                                val body = OkHttpCompat.body(resp)
                                 if (body == null) {
                                     errMessage = "线路没有返回数据"
                                 } else {
@@ -315,7 +317,7 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
             override fun onResponse(call: Call, response: Response) {
                 runCatching {
                     response.use { resp ->
-                        val body = resp.body ?: return@use
+                        val body = OkHttpCompat.body(resp) ?: return@use
                         if (body.contentLength() > 131072) return@use
                         body.byteStream().use { stream ->
                             val buffer = ByteArray(8192)
@@ -337,10 +339,10 @@ class Network(cacheDir: File?, tlsConfig: TlsConfig? = runCatching { TlsTrust.cr
     }
 
     fun close() {
-        probeClient.dispatcher.cancelAll()
-        client.dispatcher.cancelAll()
-        client.connectionPool.evictAll()
-        requestClient.cache?.close()
+        OkHttpCompat.dispatcher(probeClient).cancelAll()
+        OkHttpCompat.dispatcher(client).cancelAll()
+        OkHttpCompat.connectionPool(client).evictAll()
+        OkHttpCompat.cache(requestClient)?.close()
     }
 
     companion object {

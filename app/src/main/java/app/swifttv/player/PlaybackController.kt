@@ -1,12 +1,17 @@
 package app.swifttv.player
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -18,7 +23,6 @@ import androidx.media3.common.Timeline
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.rtmp.RtmpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -32,6 +36,8 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.extractor.ts.TsExtractor
 import androidx.media3.ui.PlayerView
 import okhttp3.Call
+import java.net.Inet6Address
+import java.net.NetworkInterface
 import java.util.UUID
 
 data class StreamSpec(
@@ -151,7 +157,7 @@ class PlaybackController(
         fun onProbeFinished()
     }
     private val handler = Handler(Looper.getMainLooper())
-    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+    private val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private var startupSourceCheck: StartupSourceCheck? = null
     private val codecProfile = HardwareCodecProbe.profile(context)
     private val selector = DefaultTrackSelector(context).apply {
@@ -190,8 +196,15 @@ class PlaybackController(
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
     )
         .setTrackSelector(selector)
-        .setLoadControl(DefaultLoadControl.Builder().setBufferDurationsMs(3000, 15000, 700, 1800)
-            .setTargetBufferBytes(16 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build())
+        .setLoadControl(
+            if (BuildConfig.IS_LITE) {
+                DefaultLoadControl.Builder().setBufferDurationsMs(2500, 12000, 700, 1500)
+                    .setTargetBufferBytes(8 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
+            } else {
+                DefaultLoadControl.Builder().setBufferDurationsMs(3000, 15000, 700, 1800)
+                    .setTargetBufferBytes(16 * 1024 * 1024).setPrioritizeTimeOverSizeThresholds(false).build()
+            }
+        )
         .build().apply {
             setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
             setHandleAudioBecomingNoisy(true)
@@ -241,35 +254,51 @@ class PlaybackController(
     val probing: Boolean get() = probeIndex >= 0
     var onInternetRestored: (() -> Unit)? = null
 
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: android.net.Network) {
-            handler.post {
-                if (!closed && exhausted && current != null && !probing && activeNetworkId() == network.networkHandle) {
-                    onInternetRestored?.invoke()
-                }
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var legacyConnectivityReceiver: BroadcastReceiver? = null
+
+    private fun handleConnectivityRestored() {
+        handler.post {
+            if (!closed && exhausted && current != null && !probing && hasInternet()) {
+                onInternetRestored?.invoke()
             }
         }
     }
 
-    private fun activeNetworkId(): Long? {
-        val active = connectivity?.activeNetwork ?: return null
-        return active.takeIf { connectivity.getNetworkCapabilities(it)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true }
-            ?.networkHandle
+    @Suppress("DEPRECATION")
+    private fun hasInternet(): Boolean {
+        val manager = connectivity ?: return false
+        return if (Build.VERSION.SDK_INT >= 23) {
+            val active = manager.activeNetwork ?: return false
+            manager.getNetworkCapabilities(active)?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        } else {
+            manager.activeNetworkInfo?.isConnected == true
+        }
     }
 
     fun hasGlobalIpv6(): Boolean {
-        val active = connectivity?.activeNetwork ?: return false
-        val link = connectivity.getLinkProperties(active) ?: return false
-        return link.linkAddresses.any { la ->
-            val addr = la.address
-            addr is java.net.Inet6Address &&
-                !addr.isLoopbackAddress &&
-                !addr.isLinkLocalAddress &&
-                !addr.isSiteLocalAddress &&
-                !addr.isMulticastAddress &&
-                (addr.address[0].toInt() and 0xfe) != 0xfc
+        if (Build.VERSION.SDK_INT >= 23) {
+            val manager = connectivity
+            val active = manager?.activeNetwork
+            val link = active?.let { manager.getLinkProperties(it) }
+            if (link != null) {
+                return link.linkAddresses.any { isGlobalUnicastIpv6(it.address) }
+            }
         }
+        return runCatching {
+            NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
+                .flatMap { it.inetAddresses.toList() }
+                .any { isGlobalUnicastIpv6(it) }
+        }.getOrDefault(false)
     }
+
+    private fun isGlobalUnicastIpv6(addr: java.net.InetAddress): Boolean =
+        addr is Inet6Address &&
+            !addr.isLoopbackAddress &&
+            !addr.isLinkLocalAddress &&
+            !addr.isSiteLocalAddress &&
+            !addr.isMulticastAddress &&
+            (addr.address[0].toInt() and 0xfe) != 0xfc
 
     fun effectiveRoutingMode(): RoutingMode = RoutingMode.read(context)
 
@@ -475,9 +504,7 @@ class PlaybackController(
             else -> {
                 val effectiveUa = next.headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
                     ?: Network.USER_AGENT
-                val factory = OkHttpDataSource.Factory(network.client)
-                    .setUserAgent(effectiveUa)
-                    .setDefaultRequestProperties(next.headers)
+                val factory = OkHttpCompat.mediaHttpDataSourceFactory(network.client, effectiveUa, next.headers)
                 DefaultMediaSourceFactory(factory, extractorsFactory).createMediaSource(item)
             }
         }
@@ -613,7 +640,7 @@ class PlaybackController(
     private fun reportStartupSourceIssue(now: Long, exhausted: Boolean = false) {
         val check = startupSourceCheck ?: return
         val channel = current ?: return
-        val issue = check.check(now, exhausted, activeNetworkId() != null) ?: return
+        val issue = check.check(now, exhausted, hasInternet()) ?: return
         if (issue != StartupSourceIssue.OFFLINE) startupSourceCheck = null
         callback.onStartupSourceIssue(channel, issue)
     }
@@ -725,7 +752,16 @@ class PlaybackController(
         handler.removeCallbacksAndMessages(null)
         warmCall?.cancel()
         finishSource()
-        runCatching { (context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(networkCallback) }
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 21) {
+                networkCallback?.let { connectivity?.unregisterNetworkCallback(it) }
+                networkCallback = null
+            }
+        }
+        runCatching {
+            legacyConnectivityReceiver?.let { context.unregisterReceiver(it) }
+            legacyConnectivityReceiver = null
+        }
         view.player = null
         player.release()
     }
@@ -813,11 +849,42 @@ class PlaybackController(
             }
         })
         onInternetRestored = { current?.let { tune(it, explicitRetry = true, diagnoseStartup = startupSourceCheck != null) } }
-        runCatching {
-            val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            manager.registerNetworkCallback(android.net.NetworkRequest.Builder()
-                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET).build(), networkCallback)
-        }
+        registerConnectivityObserver()
         handler.post(tick)
+    }
+
+    private fun registerConnectivityObserver() {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= 21) {
+                registerNetworkCallbackApi21()
+            } else {
+                @Suppress("DEPRECATION")
+                val filter = IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(c: Context, intent: Intent) {
+                        handleConnectivityRestored()
+                    }
+                }
+                legacyConnectivityReceiver = receiver
+                context.registerReceiver(receiver, filter)
+            }
+        }
+    }
+
+    @RequiresApi(21)
+    private fun registerNetworkCallbackApi21() {
+        val manager = connectivity ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: android.net.Network) {
+                handleConnectivityRestored()
+            }
+        }
+        networkCallback = cb
+        manager.registerNetworkCallback(
+            android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build(),
+            cb
+        )
     }
 }

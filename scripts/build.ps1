@@ -10,7 +10,7 @@ if (!(Test-Path -LiteralPath (Join-Path $JdkRoot 'bin\java.exe'))) { throw 'JDK 
 
 $gradleProps = Get-Content -LiteralPath (Join-Path $projectRoot 'gradle.properties')
 $versionLine = $gradleProps | Where-Object { $_ -match '^swifttv\.versionName=' } | Select-Object -First 1
-$versionName = if ($versionLine) { ($versionLine -split '=', 2)[1].Trim() } else { '0.2.0' }
+$versionName = if ($versionLine) { ($versionLine -split '=', 2)[1].Trim() } else { '0.4.4' }
 
 $env:JAVA_HOME = $JdkRoot
 $env:ANDROID_HOME = $SdkRoot
@@ -37,14 +37,24 @@ if ($Release) {
 }
 Push-Location $projectRoot
 try {
-    $tasks = @(':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug', ':app:assembleDebugAndroidTest')
-    if ($Release) { $tasks += ':app:assembleRelease' }
+    $tasks = @(
+        ':app:testStandardDebugUnitTest', ':app:testLiteDebugUnitTest',
+        ':app:lintStandardDebug', ':app:lintLiteDebug',
+        ':app:assembleStandardDebug', ':app:assembleLiteDebug',
+        ':app:assembleStandardDebugAndroidTest', ':app:assembleLiteDebugAndroidTest'
+    )
+    if ($Release) { $tasks += @(':app:assembleStandardRelease', ':app:assembleLiteRelease') }
     & '.\gradlew.bat' @tasks --no-daemon --console plain
     if ($LASTEXITCODE -ne 0) { throw 'Gradle validation/build failed.' }
     $delivery = Join-Path $projectRoot 'output\delivery'
     [void][IO.Directory]::CreateDirectory($delivery)
-    Copy-Item -LiteralPath 'app\build\outputs\apk\debug\app-debug.apk' -Destination (Join-Path $delivery "SwiftTV-$versionName-debug.apk")
-    Copy-Item -LiteralPath 'app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk' -Destination (Join-Path $delivery "SwiftTV-$versionName-tests.apk")
-    if ($Release) { Copy-Item -LiteralPath 'app\build\outputs\apk\release\app-release.apk' -Destination (Join-Path $delivery "SwiftTV-$versionName.apk") }
-    Get-ChildItem -LiteralPath $delivery -Filter "SwiftTV-$versionName*.apk" | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash
+    Copy-Item -LiteralPath 'app\build\outputs\apk\standard\debug\app-standard-debug.apk' -Destination (Join-Path $delivery "SwiftTV-$versionName-debug.apk")
+    Copy-Item -LiteralPath 'app\build\outputs\apk\lite\debug\app-lite-debug.apk' -Destination (Join-Path $delivery "SwiftTV-Lite-$versionName-debug.apk")
+    Copy-Item -LiteralPath 'app\build\outputs\apk\androidTest\standard\debug\app-standard-debug-androidTest.apk' -Destination (Join-Path $delivery "SwiftTV-$versionName-tests.apk")
+    Copy-Item -LiteralPath 'app\build\outputs\apk\androidTest\lite\debug\app-lite-debug-androidTest.apk' -Destination (Join-Path $delivery "SwiftTV-Lite-$versionName-tests.apk")
+    if ($Release) {
+        Copy-Item -LiteralPath 'app\build\outputs\apk\standard\release\app-standard-release.apk' -Destination (Join-Path $delivery "SwiftTV-$versionName.apk")
+        Copy-Item -LiteralPath 'app\build\outputs\apk\lite\release\app-lite-release.apk' -Destination (Join-Path $delivery "SwiftTV-Lite-$versionName.apk")
+    }
+    Get-ChildItem -LiteralPath $delivery -Filter "SwiftTV*-$versionName*.apk" | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash
 } finally { Pop-Location }

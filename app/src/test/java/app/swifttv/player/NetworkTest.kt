@@ -109,7 +109,7 @@ class NetworkTest {
             server.enqueue(MockResponse().setBody("x".repeat(expected))
                 .throttleBody(1024, 1, java.util.concurrent.TimeUnit.SECONDS))
             network.client.newCall(okhttp3.Request.Builder().url(server.url("/live.ts")).build()).execute().use {
-                assertEquals(expected, it.body!!.bytes().size)
+                assertEquals(expected, OkHttpCompat.body(it)!!.bytes().size)
             }
         } finally { network.close(); server.shutdown() }
     }
@@ -173,8 +173,8 @@ class NetworkTest {
             server.enqueue(MockResponse().setHeader("Cache-Control", "public, max-age=600").setBody("live sequence 2"))
             server.enqueue(MockResponse().setHeader("Cache-Control", "public, max-age=600").setBody("live sequence 3"))
             fun playbackRead(): String = network.client.newCall(okhttp3.Request.Builder().url(url).build())
-                .execute().use { it.body!!.string() }
-            assertNull(network.client.cache)
+                .execute().use { OkHttpCompat.body(it)!!.string() }
+            assertNull(OkHttpCompat.cache(network.client))
             assertEquals("live sequence 2", playbackRead())
             assertEquals("live sequence 3", playbackRead())
             assertEquals(cachedPlaylist, network.download(url).text)
@@ -279,5 +279,66 @@ class NetworkTest {
             assertTrue(downloaded.text!!.contains("央视"))
             assertEquals(1, M3uParser.parseImport(downloaded.text!!).entries.size)
         } finally { network.close(); server.shutdown() }
+    }
+
+    @Test fun enableModernTlsProtocolsAddsTls12WithoutDroppingSupportedProtocols() {
+        val patched = TlsTrust.enableModernTlsProtocols(
+            supported = arrayOf("TLSv1", "TLSv1.1", "TLSv1.2"),
+            enabled = arrayOf("TLSv1")
+        )
+        assertTrue("TLSv1.2" in patched)
+        assertTrue("TLSv1" in patched)
+        val unsupported = TlsTrust.enableModernTlsProtocols(
+            supported = arrayOf("TLSv1"),
+            enabled = arrayOf("TLSv1")
+        )
+        assertArrayEquals(arrayOf("TLSv1"), unsupported)
+    }
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @Test fun mediaHttpDataSourceStreamsRangeAndSurfacesHttpStatusErrors() {
+        val server = MockWebServer(); server.start()
+        val network = Network(null)
+        try {
+            server.enqueue(MockResponse().setBody("0123456789"))
+            val factory = OkHttpCompat.mediaHttpDataSourceFactory(
+                network.client,
+                Network.USER_AGENT,
+                mapOf("X-Test" to "lite")
+            )
+            val ds = factory.createDataSource()
+            val spec = androidx.media3.datasource.DataSpec.Builder()
+                .setUri(android.net.StubUri.of(server.url("/live/seg.ts").toString()))
+                .setPosition(4)
+                .setLength(6)
+                .build()
+            val length = ds.open(spec)
+            assertEquals(6L, length)
+            val buf = ByteArray(16)
+            val read = ds.read(buf, 0, buf.size)
+            assertEquals("456789", String(buf, 0, read, Charsets.UTF_8))
+            ds.close()
+            val req = server.takeRequest()
+            assertEquals("bytes=4-9", req.getHeader("Range"))
+            assertEquals("lite", req.getHeader("X-Test"))
+
+            server.enqueue(MockResponse().setResponseCode(403).setBody("Forbidden"))
+            val dsErr = factory.createDataSource()
+            try {
+                dsErr.open(
+                    androidx.media3.datasource.DataSpec.Builder()
+                        .setUri(android.net.StubUri.of(server.url("/denied.ts").toString()))
+                        .build()
+                )
+                fail("Expected InvalidResponseCodeException")
+            } catch (e: androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                assertEquals(403, e.responseCode)
+            } finally {
+                dsErr.close()
+            }
+        } finally {
+            network.close()
+            server.shutdown()
+        }
     }
 }
