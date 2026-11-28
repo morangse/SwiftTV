@@ -1433,8 +1433,12 @@ html.motion-paused .ambient-horizon {
 /* Downloads */
 .download-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
+}
+
+.download-card .dl-actions {
+  margin-top: auto;
 }
 
 .download-card {
@@ -1705,7 +1709,13 @@ html.motion-paused .ambient-horizon {
   transform: translate(-50%, 0) scale(1);
 }
 
-/* Responsive (< 980px & < 768px Mobile Polish) */
+/* Responsive (< 1080px, < 980px & < 768px Mobile Polish) */
+@media (max-width: 1080px) {
+  .download-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 980px) {
   .hero {
     grid-template-columns: 1fr;

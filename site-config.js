@@ -14,6 +14,12 @@ window.SWIFTTV_SITE_CONFIG = {
       sizeLabel: "3.5 MB",
       sha256: "29534b6b730682a407281dcf6ec5fb7d1c0c90cec5822b8b23713b01b2d71c29"
     },
+    liteApk: {
+      name: "SwiftTV-Lite-0.4.4.apk",
+      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Lite-0.4.4.apk",
+      sizeLabel: "3.3 MB",
+      sha256: "53879b61402068c2fb48f749c6afc7a2fe332b4eb41f211162979e201adc7b"
+    },
     installerApk: {
       name: "SwiftTV-Installer-1.1.4.apk",
       url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Installer-1.1.4.apk",

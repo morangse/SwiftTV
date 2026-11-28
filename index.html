@@ -60,7 +60,7 @@
         </h1>
 
         <p class="hero-lead" data-stagger="2">
-          专为 Android TV 6.0+ 打造的轻量播放器。零广告、零账号、零内置第三方片源；开箱扫码导源、手机一键直推、多主机 <strong>2.5s 并发竞速切台</strong>，并内置专为长辈优化的 <strong>4 挡即时大字缩放</strong>与<strong>自然上下键换台</strong>。
+          专为 Android TV 6.0+ 打造，并提供面向老旧 <strong>Android 4.4+</strong> 机顶盒的 Lite 精简版。零广告、零账号、零内置第三方片源；开箱扫码导源、多主机 <strong>2.5s 并发竞速切台</strong>、4 挡即时大字缩放与自然上下键换台。
         </p>
 
         <div class="hero-cta" data-stagger="3">
@@ -389,7 +389,7 @@
             <span class="dl-tag" id="dlTvTag">电视端主程序</span>
             <span class="dl-ver" id="dlTvVersion">v0.4.4</span>
           </div>
-          <h3>SwiftTV Android TV 版</h3>
+          <h3>SwiftTV 标准版</h3>
           <p class="dl-req">适用于 Android TV / 电视盒子 6.0+（API 23 及以上）</p>
           <div class="dl-checksum">
             <span>SHA-256：</span>
@@ -397,11 +397,29 @@
             <button type="button" class="copy-mini" id="copyTvSha">复制</button>
           </div>
           <div class="dl-actions">
-            <a class="btn-porcelain sheen-btn magnetic" id="dlTvBtn" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk">下载 SwiftTV APK (<span id="dlTvSize">3.5 MB</span>)</a>
+            <a class="btn-porcelain sheen-btn magnetic" id="dlTvBtn" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk">下载标准版 APK (<span id="dlTvSize">3.5 MB</span>)</a>
           </div>
         </div>
 
-        <div class="download-card spotlight-surface" data-reveal style="--reveal-delay: 90ms">
+        <div class="download-card spotlight-surface" data-reveal style="--reveal-delay: 60ms">
+          <div class="spotlight-layer" aria-hidden="true"></div>
+          <div class="dl-head">
+            <span class="dl-tag">低版本兼容</span>
+            <span class="dl-ver" id="dlLiteVersion">v0.4.4</span>
+          </div>
+          <h3>SwiftTV Lite 精简版</h3>
+          <p class="dl-req">适用于老旧电视 / 机顶盒 Android 4.4+（API 19+ · 独立包名可共存）</p>
+          <div class="dl-checksum">
+            <span>SHA-256：</span>
+            <code id="dlLiteSha">53879b61402068c2fb48f749c6afc7a2fe332b4eb41f211162979e201adc7b</code>
+            <button type="button" class="copy-mini" id="copyLiteSha">复制</button>
+          </div>
+          <div class="dl-actions">
+            <a class="btn-crystal magnetic" id="dlLiteBtn" href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Lite-0.4.4.apk">下载 Lite 版 APK (<span id="dlLiteSize">3.3 MB</span>)</a>
+          </div>
+        </div>
+
+        <div class="download-card spotlight-surface" data-reveal style="--reveal-delay: 120ms">
           <div class="spotlight-layer" aria-hidden="true"></div>
           <div class="dl-head">
             <span class="dl-tag">手机端伴侣</span>
@@ -453,6 +471,13 @@
           <summary>导入外部 HTTPS 订阅链接时遇到证书报错（Trust anchor not found）怎么办？</summary>
           <div class="faq-body">
             这常见于年份较久的 Android 6–9 电视固件系统缺少较新的公共根证书（如 Let's Encrypt），或电视系统时间未自动同步。建议先确认电视日期时间准确，或直接在手机端下载该 <code class="inline-code">.m3u</code> 后通过配对页面的「本地 M3U 文件」上传给电视。
+          </div>
+        </details>
+
+        <details>
+          <summary>老款安卓 4.4 / 5.x 电视或机顶盒应该下载哪个版本？</summary>
+          <div class="faq-body">
+            请下载 <strong>SwiftTV Lite 精简版</strong>（最低支持 Android 4.4 / API 19）。Lite 版保留了频道抽屉、行内操作、并发竞速、超时自动重连、长辈大字与扫码导源等全部核心功能，仅舍弃了实时毛玻璃与阴影动效、改用更省内存的纯平面渲染和 <code class="inline-code">SurfaceView</code> 输出，并使用独立包名 <code class="inline-code">app.swifttv.player.lite</code>，可与标准版共存安装。
           </div>
         </details>
 
