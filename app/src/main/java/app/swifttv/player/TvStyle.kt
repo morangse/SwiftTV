@@ -97,6 +97,13 @@ object TvStyle {
         c.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit { putBoolean("smartLogoLookup", value) }
     }
 
+    fun autoRefreshSubscriptions(c: Context): Boolean =
+        c.getSharedPreferences("appearance", Context.MODE_PRIVATE).getBoolean("autoRefreshSubscriptions", true)
+
+    fun setAutoRefreshSubscriptions(c: Context, value: Boolean) {
+        c.getSharedPreferences("appearance", Context.MODE_PRIVATE).edit { putBoolean("autoRefreshSubscriptions", value) }
+    }
+
     /** Directional 135-degree optical crystal surface matching the SwiftTV obsidian icon (flat in Lite). */
     fun specularSurface(
         c: Context,

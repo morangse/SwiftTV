@@ -71,6 +71,7 @@ class CinemaRibbonView(
         val fontScaleMode: FontScaleMode = FontScaleMode.STANDARD,
         val lightweight: Boolean = false,
         val smartLogoLookup: Boolean = true,
+        val autoRefreshSubscriptions: Boolean = true,
         val customEpgUrl: String = "",
         val supports4kHevc50: Boolean = false,
         val logoCacheBytes: Long = 0L
@@ -83,6 +84,7 @@ class CinemaRibbonView(
         fun onSelectFontScale(mode: FontScaleMode)
         fun onToggleLightweight(): Boolean
         fun onToggleSmartLogoLookup(): Boolean
+        fun onToggleAutoRefreshSubscriptions(): Boolean
         fun onCycleRouting(): String
         fun onCycleSwitchDirection(): String
         fun onOpenStartupSettings()
@@ -103,6 +105,7 @@ class CinemaRibbonView(
         override fun onSelectFontScale(mode: FontScaleMode) {}
         override fun onToggleLightweight(): Boolean = false
         override fun onToggleSmartLogoLookup(): Boolean = true
+        override fun onToggleAutoRefreshSubscriptions(): Boolean = true
         override fun onCycleRouting(): String = "自动"
         override fun onCycleSwitchDirection(): String = "自然"
         override fun onOpenStartupSettings() {}
@@ -824,6 +827,15 @@ class CinemaRibbonView(
 
         // 4. Sources & Maintenance
         addSettingsSectionLabel("频道源与维护")
+        addSettingsRow(settingsSwitchRow(
+            TvGlyph.REFRESH,
+            "启动时自动更新订阅",
+            "每次打开软件后台同步远程频道源",
+            m.autoRefreshSubscriptions,
+            focusKey = "auto_refresh_subs"
+        ) {
+            settingsActions.onToggleAutoRefreshSubscriptions()
+        })
         addSettingsRow(settingsActionRow(TvGlyph.REFRESH, "刷新全部订阅与节目单", "立即后台同步最新频道与预告", focusKey = "refresh") { _, _ ->
             settingsActions.onRefreshAll()
         })

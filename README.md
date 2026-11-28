@@ -9,18 +9,18 @@
 <p align="center">
   <a href="https://morangse.github.io/SwiftTV/"><strong>官网首页</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk"><strong>下载 SwiftTV 0.4.4</strong></a>
+  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SwiftTV-0.4.5.apk"><strong>下载 SwiftTV 0.4.5</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Lite-0.4.4.apk"><strong>下载 SwiftTV Lite（Android 4.4+）</strong></a>
+  <a href="https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SwiftTV-Lite-0.4.5.apk"><strong>下载 SwiftTV Lite（Android 4.4+）</strong></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.4">v0.4.4 发行说明</a>
+  <a href="https://github.com/morangse/SwiftTV/releases/tag/v0.4.5">v0.4.5 发行说明</a>
   &nbsp;·&nbsp;
   <a href="#安装与导入">快速上手</a>
   &nbsp;·&nbsp;
   <a href="#社区公开源整理参考">社区源参考</a>
 </p>
 
-<p align="center">标准版 Android 6.0+（API 23）&nbsp; · &nbsp;Lite 版 Android 4.4+（API 19）&nbsp; · &nbsp;M3U / 单频道 HLS (.m3u8) / XMLTV&nbsp; · &nbsp;Apache-2.0</p>
+<p align="center">标准版 Android 6.0+（API 23）&nbsp; · &nbsp;Lite 版 Android 4.4+（API 19）&nbsp; · &nbsp;内置 FFmpeg 音频软解&nbsp; · &nbsp;Apache-2.0</p>
 
 > **定位声明**：SwiftTV 是一个**纯空壳本地播放器**，安装包与源码内不内置、不预设、不分发任何第三方直播源、频道列表或媒体内容。所有频道表、单频道流地址和节目单均由用户自行添加、托管或推送导入。
 
@@ -35,7 +35,7 @@
 | 功能 | 说明 |
 | :--- | :--- |
 | **开箱即扫 · 手机配对导源** | 首次启动或频道列表为空时，直接弹出**局域网配对二维码**；用手机浏览器扫码或直接用 [SwiftTV 安装助手](installer/) 一键推送订阅链接、单频道 `.m3u8` 或手机本地文件，免去电视遥控器输入长网址的麻烦。 |
-| **M3U 与单频道 HLS 全兼容** | 支持标准 `#EXTINF` M3U/M3U8 列表、**单频道 HLS 媒体/主清单（`.m3u8`）**、TS / HTTP-FLV / fMP4 直播直链。保存前自动预览，远程订阅刷新失败时保留本地旧表。 |
+| **启动自动同步与全格式解码** | 每次启动默认后台自动更新远程订阅（可在设置关闭）；标准版与 Lite 版均已内置 **FFmpeg 音频软解扩展**，兼容国内 IPTV 组播常见 MP2 / AC-3 / E-AC-3 等音轨，避免“有画无声”。 |
 | **多主机并发测通与极速换源** | 播放切台时不再死等单一线路超时：当头部缺少已验证健康的线路时，最多对 **3 条不同主机**发起并发轻量探测（`2.5s` 超时，读取 `<= 4 KB` 报文头即锁定最快可播流并取消其余请求），配合分级看门狗（`3.5s` 无轨、`7.5s` 首帧）与指数退避冷却。 |
 | **按协议自动选路** | 实时检测本机全局 IPv6 连通能力（`LinkProperties`），在「自动择优 / IPv6 优先 / IPv4 优先 / 历史首帧优先」之间调度同频道多条线路。 |
 | **遥控器优先的透明大屏 UI** | 方向键先浏览焦点、确认后切换，全屏无遮挡；左侧双栏抽屉无缝集成全分类频道表、`0` 键一键定位在播频道、同栏内联线路/收藏详情与同栏设置（4 挡长辈大字、轻量纯黑切换、XMLTV 节目单）。 |
@@ -51,9 +51,9 @@
 ## 安装与导入
 
 1. **按电视系统选择安装包**：
-   - **标准版（Android 6.0+ / API 23）**：[SwiftTV-0.4.4.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk)（`app.swifttv.player`），完整光学晶体界面与并发竞速体验。
-   - **Lite 精简版（Android 4.4+ / API 19）**：[SwiftTV-Lite-0.4.4.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Lite-0.4.4.apk)（独立包名 `app.swifttv.player.lite`，可与标准版共存安装）。保留全部播控、竞速、断流自动重连、长辈大字与扫码导源功能，采用轻量平面渲染、`SurfaceView` 视频输出与低内存缓冲，并内置 API 19 TLS 1.2 兼容层，专为老旧电视与运营商机顶盒打造。
-   - 所有 APK 校验摘要见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SHA256SUMS.txt)；也可通过同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.4.apk`)** 在手机端局域网无线推送安装。
+   - **标准版（Android 6.0+ / API 23）**：[SwiftTV-0.4.5.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SwiftTV-0.4.5.apk)（`app.swifttv.player`），完整光学晶体界面与并发竞速体验。
+   - **Lite 精简版（Android 4.4+ / API 19）**：[SwiftTV-Lite-0.4.5.apk](https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SwiftTV-Lite-0.4.5.apk)（独立包名 `app.swifttv.player.lite`，可与标准版共存安装）。保留全部播控、竞速、FFmpeg 音频软解、启动自动更新订阅与扫码导源功能，采用轻量平面渲染、`SurfaceView` 视频输出与低内存缓冲，并内置 API 19 TLS 1.2 兼容层，专为老旧电视与运营商机顶盒打造。
+   - 所有 APK 校验摘要见 [SHA256SUMS.txt](https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SHA256SUMS.txt)；也可通过同 Release 提供的 **SwiftTV 安装助手 (`SwiftTV-Installer-1.1.5.apk`)** 在手机端局域网无线推送安装。
 2. **首次启动配对导源**：首次打开 SwiftTV 且尚未导入频道时，界面会直接显示**手机配对二维码**与左侧快速入口（`手动输入地址` / `本地文件` / `更多设置`）。
 3. **手机推送直播源（推荐）**：
    - **方式 A（手机浏览器扫码）**：手机与电视在同一 Wi‑Fi 下扫一扫屏幕二维码，可输入远程 `.m3u` / 单频道 `.m3u8` 链接、或直接上传手机本地 `.m3u/.m3u8` 文件并点击发送，电视端按 OK 确认预览即可播放。
@@ -81,11 +81,11 @@ https://morangse.github.io/iptvtest/
 
 ## 手机端局域网安装与推源助手
 
-仓库内的 [`installer/`](installer/) 是一个独立的 Android 手机伴侣应用（`SwiftTV 安装助手 1.1.4`），用于在无 U 盘环境下通过局域网 ADB 安装 SwiftTV 并推送直播源：
+仓库内的 [`installer/`](installer/) 是一个独立的 Android 手机伴侣应用（`SwiftTV 安装助手 1.1.5`），用于在无 U 盘环境下通过局域网 ADB 安装 SwiftTV 并推送直播源：
 
 - 自动扫描同网段 `5555` 端口，并通过 mDNS 发现 Android 11+ 无线调试设备
-- 支持手动 IP、授权弹窗自动重试、6 位配对码（SPAKE2 + Conscrypt），以及签名冲突卸载重装
-- 内置 `SwiftTV 0.4.4` 安装包，也支持在手机上选择其他本地 APK
+- 支持手动 IP、授权弹窗自动重试、6 位配对码（SPAKE2 + Conscrypt），以及签名冲突卸载重装（1.1.5 升级 `kadb 2.1.4` 修复部分手机连接时报 `"Only RSA private keys with CRT parameters are supported"` 问题）
+- 内置 `SwiftTV 0.4.5` 安装包，也支持在手机上选择其他本地 APK
 - **1.1.0 新增推源能力**：在手机上粘贴 M3U 订阅 / 单频道 `.m3u8` 链接（可选列表名与 EPG）或挑选本地 `.m3u/.m3u8` 文件（内置随机一次性令牌 LAN 短暂托管），一键唤起电视端确认导入
 
 构建方式（独立 Gradle 工程）：

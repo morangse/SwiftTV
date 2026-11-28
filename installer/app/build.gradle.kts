@@ -7,14 +7,14 @@ plugins {
 
 android {
     namespace = "app.swifttv.installer"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "app.swifttv.installer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.1.4"
+        versionCode = 8
+        versionName = "1.1.5"
         vectorDrawables.useSupportLibrary = true
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -93,8 +93,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     // Pure-Kotlin ADB client for direct adbd connections, including Android 11+
-    // wireless-debugging SPAKE2 pairing.
-    implementation("com.flyfishxu:kadb:2.1.1")
+    // wireless-debugging SPAKE2 pairing (2.1.4 fixes non-CRT RSA key parsing on Conscrypt).
+    implementation("com.flyfishxu:kadb:2.1.4")
 
     // Android 8/8.1 lack TLS 1.3, which adb pairing requires. Kadb detects this
     // provider automatically and uses it instead of the platform Conscrypt.

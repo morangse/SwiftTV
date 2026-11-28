@@ -1,32 +1,38 @@
-SwiftTV
+SwiftTV 0.2
 Copyright 2026 SwiftTV contributors
 Licensed under the Apache License, Version 2.0.
 
 Runtime components:
-- AndroidX Core, Activity, RecyclerView and Media3 (Apache-2.0):
-  https://github.com/androidx/androidx and https://github.com/androidx/media
-- Kotlin (Apache-2.0): https://github.com/JetBrains/kotlin
-- OkHttp and Okio (Apache-2.0): https://github.com/square/okhttp and https://github.com/square/okio
-- ZXing (Apache-2.0): https://github.com/zxing/zxing
+- AndroidX Core, Activity and Media3, Android Open Source Project, Apache-2.0.
+  https://github.com/androidx/androidx ; https://github.com/androidx/media
+- Kotlin standard library, JetBrains, Apache-2.0. https://github.com/JetBrains/kotlin
+- OkHttp and Okio, Square contributors, Apache-2.0.
+  https://github.com/square/okhttp ; https://github.com/square/okio
+- ZXing Core, ZXing contributors, Apache-2.0. https://github.com/zxing/zxing
+- Jellyfin Media3 FFmpeg Decoder Extension (`org.jellyfin.media3:media3-ffmpeg-decoder`),
+  Jellyfin contributors / FFmpeg, GPL-3.0. Software audio decoding fallback (MP2, AC-3, E-AC-3, DTS, FLAC, etc.).
+  https://github.com/jellyfin/jellyfin-androidx-media
+- Transitive AndroidX, Guava, Error Prone and JSpecify components retain their upstream notices.
 
-The optional phone installer in `installer/` additionally uses:
-- Kadb (Apache-2.0): https://github.com/flyfishxu/Kadb
-- Conscrypt (Apache-2.0): https://github.com/google/conscrypt
-- Bouncy Castle (MIT-style): https://www.bouncycastle.org/licence.html
-- Kotlinx Coroutines (Apache-2.0): https://github.com/Kotlin/kotlinx.coroutines
-- Material Components for Android (Apache-2.0): https://github.com/material-components/material-components-android
-Dependency licenses remain with their respective projects.
+Development/test components include JUnit 4 (EPL-1.0), Hamcrest (BSD-3-Clause),
+MockWebServer (Apache-2.0), JSON-java (its upstream license applies),
+Android test libraries (Apache-2.0). They are not part of the public release player.
 
-The SwiftTV launcher icon and TV banner use artwork supplied by the project
-maintainer. SwiftTV's software license does not grant rights in station logos,
-trademarks, programme data or live video. The public distribution contains no
-bundled third-party station logo library or live-channel playlist.
-The optional Henan Mobile import points to Elykia093/HA-CMCC-IPTV:
-https://github.com/Elykia093/HA-CMCC-IPTV/blob/main/LICENSING.md
-The optional Guovin IPv4 import points to the Guovin/iptv-api results page:
-https://guovin.github.io/iptv-api/
+Public catalog sources are attributed in docs/SOURCES.md.
+Catalog references and stream content are separate from the SwiftTV software license.
+No source code from the catalog collectors has been copied into the player.
 
-The README's emulator screenshots use sample programme data and footage
-courtesy of the Earth Science and Remote Sensing Unit, NASA Johnson Space
-Center (ISS Timelapse: West Coast of the Americas, SVS 30180).
-https://svs.gsfc.nasa.gov/30180/
+Local station identification artwork:
+- 24 channel logos from fanmingming/live at commit
+  eaf218417af393ccd0a16f2f916a0aadd019f1f1, GPL-3.0 as declared by upstream.
+  Original artwork, conversion source, full upstream license and provenance
+  are preserved in docs/research/2026-11-17/channel-logos/.
+  APK notices: assets/channel-logos/NOTICE.txt and
+  assets/channel-logos/LICENSE-fanmingming-live.txt.
+  Channel names, artwork copyright and trademarks remain with their owners;
+  upstream licensing does not establish separate station brand authorization.
+  See docs/CHANNEL_LOGOS.md. SwiftTV code retains Apache-2.0.
+
+User-provided application artwork is packaged for launcher icons and TV banner.
+The original attachment and reproducible packaging instructions are preserved in
+docs/branding/ and docs/BRANDING.md; no additional artwork license is inferred.

@@ -89,7 +89,8 @@ class CatalogStore(context: Context) {
                 .put("rebufferMs", x.rebufferMs).put("playedMs", x.playedMs).put("checkedAt", x.checkedAt)
                 .put("error", x.error).put("cooldownUntil", x.cooldownUntil)
                 .put("width", x.width).put("height", x.height).put("codec", x.codec).put("audioStarted", x.audioStarted)
-                .put("failures", x.failures).put("cancelled", x.cancelled).put("lastOutcome", x.lastOutcome)) } }).toString()
+                .put("failures", x.failures).put("cancelled", x.cancelled).put("lastOutcome", x.lastOutcome)
+                .put("audioCodec", x.audioCodec)) } }).toString()
 
         fun decode(text: String): CatalogState {
             val root = JSONObject(text)
@@ -114,7 +115,8 @@ class CatalogStore(context: Context) {
                         x.optString("error"), x.optLong("cooldownUntil"), x.optInt("width"), x.optInt("height"), x.optString("codec"), x.optBoolean("audioStarted"),
                         x.optInt("failures", if (x.optString("error").isNotEmpty()) maxOf(1, x.optInt("attempts") - x.optInt("successes")) else 0),
                         x.optInt("cancelled", if (x.optString("error").isEmpty()) maxOf(0, x.optInt("attempts") - x.optInt("successes")) else 0),
-                        x.optString("lastOutcome"))
+                        x.optString("lastOutcome"),
+                        x.optString("audioCodec"))
                 }, root.optString("customEpgUrl"))
         }
         private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }

@@ -26,8 +26,30 @@ data class SourceStat(
     val rebufferMs: Long = 0, val playedMs: Long = 0, val checkedAt: Long = 0,
     val error: String = "", val cooldownUntil: Long = 0,
     val width: Int = 0, val height: Int = 0, val codec: String = "", val audioStarted: Boolean = false,
-    val failures: Int = 0, val cancelled: Int = 0, val lastOutcome: String = ""
+    val failures: Int = 0, val cancelled: Int = 0, val lastOutcome: String = "",
+    val audioCodec: String = ""
 )
+
+/** Determines which remote HTTP/HTTPS subscriptions should refresh automatically or explicitly. */
+object SubscriptionRefreshPolicy {
+    const val WARM_RESUME_INTERVAL_MS = 15 * 60 * 1000L
+
+    fun selectDue(
+        subscriptions: List<Subscription>,
+        nowMs: Long,
+        explicit: Boolean,
+        autoRefreshEnabled: Boolean,
+        isColdLaunch: Boolean
+    ): List<Subscription> = subscriptions.filter { sub ->
+        if (!SourceRoutes.isHttpFamily(sub.url)) return@filter false
+        when {
+            explicit -> true
+            !autoRefreshEnabled -> false
+            isColdLaunch -> true
+            else -> nowMs - sub.updatedAt >= WARM_RESUME_INTERVAL_MS
+        }
+    }
+}
 data class Subscription(
     val id: String, val name: String, val url: String, val updatedAt: Long,
     val etag: String = "", val lastModified: String = "", val epgUrl: String = ""

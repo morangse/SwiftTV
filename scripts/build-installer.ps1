@@ -5,9 +5,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $installerRoot = Join-Path $repoRoot 'installer'
-if (!(Test-Path -LiteralPath (Join-Path $SdkRoot 'platforms\android-36\android.jar'))) { throw 'Android SDK platform 36 is required; set -SdkRoot.' }
+if (!(Test-Path -LiteralPath (Join-Path $SdkRoot 'platforms\android-37.0\android.jar')) -and !(Test-Path -LiteralPath (Join-Path $SdkRoot 'platforms\android-37\android.jar'))) { throw 'Android SDK platform 37 is required; set -SdkRoot.' }
 if (!(Test-Path -LiteralPath (Join-Path $JdkRoot 'bin\java.exe'))) { throw 'JDK 17 is required; set -JdkRoot.' }
 if (!(Test-Path -LiteralPath (Join-Path $installerRoot 'gradlew.bat'))) { throw 'installer project is missing.' }
+
+$gradleContent = Get-Content -LiteralPath (Join-Path $installerRoot 'app\build.gradle.kts') -Raw
+$versionName = if ($gradleContent -match 'versionName\s*=\s*"([^"]+)"') { $Matches[1] } else { '1.1.5' }
 
 $env:JAVA_HOME = $JdkRoot
 $env:ANDROID_HOME = $SdkRoot
@@ -19,7 +22,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installer Gradle validation/build failed.' }
     $delivery = Join-Path $repoRoot 'output\delivery'
     [void][IO.Directory]::CreateDirectory($delivery)
-    Copy-Item -LiteralPath 'app\build\outputs\apk\release\app-release.apk' -Destination (Join-Path $delivery 'SwiftTV-Installer-1.1.4.apk')
-    Copy-Item -LiteralPath 'app\build\outputs\apk\debug\app-debug.apk' -Destination (Join-Path $delivery 'SwiftTV-Installer-1.1.4-debug.apk')
-    Get-ChildItem -LiteralPath $delivery -Filter 'SwiftTV-Installer-*.apk' | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash
+    Copy-Item -LiteralPath 'app\build\outputs\apk\release\app-release.apk' -Destination (Join-Path $delivery "SwiftTV-Installer-$versionName.apk")
+    Copy-Item -LiteralPath 'app\build\outputs\apk\debug\app-debug.apk' -Destination (Join-Path $delivery "SwiftTV-Installer-$versionName-debug.apk")
+    Get-ChildItem -LiteralPath $delivery -Filter "SwiftTV-Installer-$versionName*.apk" | Get-FileHash -Algorithm SHA256 | Select-Object Path,Hash
 } finally { Pop-Location }

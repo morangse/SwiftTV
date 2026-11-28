@@ -12,7 +12,8 @@ class CatalogDiagnosticsTest {
     @Test fun sameUrlIsOneSourceWithAllProviderLabelsAndMeasuredStatistics() {
         val measured = SourceStat(attempts = 7, successes = 4, firstFrameMs = 973, rebufferMs = 321,
             playedMs = 90000, checkedAt = 12345, width = 1920, height = 1080, codec = "video/avc",
-            audioStarted = true, failures = 1, cancelled = 2, lastOutcome = "playing")
+            audioStarted = true, failures = 1, cancelled = 2, lastOutcome = "playing",
+            audioCodec = "audio/mpeg-L2")
         val state = CatalogState(
             entries = listOf(v6Entry, v6Entry.copy(subscriptionId = "custom"), v6Entry),
             subscriptions = listOf(
@@ -49,6 +50,7 @@ class CatalogDiagnosticsTest {
         assertEquals(1080, source.getInt("height"))
         assertEquals("video/avc", source.getString("codec"))
         assertTrue(source.getBoolean("audioStarted"))
+        assertEquals("audio/mpeg-L2", source.getString("audioCodec"))
         assertEquals(1, source.getInt("failures"))
         assertEquals(2, source.getInt("cancelled"))
         assertEquals("playing", source.getString("lastOutcome"))
@@ -98,6 +100,7 @@ class CatalogDiagnosticsTest {
             assertEquals(0, source.getInt("attempts"))
             assertEquals(0, source.getInt("successes"))
             assertFalse(source.getBoolean("audioStarted"))
+            assertEquals("", source.getString("audioCodec"))
         }
         assertTrue(state.stats.isEmpty())
     }

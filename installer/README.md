@@ -3,14 +3,14 @@
 一个 Android 手机端的小工具：在同一个局域网内发现电视，通过 ADB 把内置的 SwiftTV 安装包推到电视上并安装。
 
 - 应用包名：`app.swifttv.installer`
-- 版本：1.1.4（versionCode 7）
+- 版本：1.1.5（versionCode 8）
 - 最低手机系统：Android 8.0（API 26）
-- 内置安装包：`app/src/main/assets/swifttv-0.4.4.apk`（与 SwiftTV 0.4.4 公开发行包一致）
+- 内置安装包：`app/src/main/assets/swifttv-0.4.5.apk`（与 SwiftTV 0.4.5 公开发行包一致）
 - 图标：复用 SwiftTV 品牌图，已生成各密度启动图标与 Android 13 单色图标
 
 ## 目录与构建产物
 
-- `app/src/main/assets/swifttv-0.4.4.apk`：内置的 SwiftTV 安装包
+- `app/src/main/assets/swifttv-0.4.5.apk`：内置的 SwiftTV 安装包
 - `app/src/main/java/app/swifttv/installer/`：应用源码
 - `app/build/outputs/apk/release/app-release.apk`：构建后的 release APK（不入库）
 - `app/build/outputs/apk/debug/app-debug.apk`：构建后的 debug APK（不入库）
@@ -48,7 +48,7 @@
    - 安装成功后可自动通过 `monkey` 或 `am start` 打开 SwiftTV。
 
 6. **安装包管理**
-   - 默认使用内置 SwiftTV 0.4.4。
+   - 默认使用内置 SwiftTV 0.4.5。
    - 可通过系统文件选择器更换本地 APK；会读取包名、版本、图标和大小，并提示所选包是否不是 SwiftTV。
 
 7. **推送直播源到电视（1.1.0 新增）**
@@ -92,9 +92,9 @@
 环境要求：
 
 - JDK 17（`C:\Program Files\Java\jdk-17`）用于 Gradle 构建和默认单元测试
-- Android SDK，compileSdk 36，build-tools 36.0.0
+- Android SDK，compileSdk 37（`targetSdk 36`），build-tools 37.0.0
 - Gradle wrapper 8.14
-- 可选：JDK 21+ 用于运行 Kadb 身份生成测试；在 JDK 17 下该测试会自动跳过
+- 可选：JDK 21+ 用于运行 Kadb 身份生成与非 CRT RSA 密钥兼容测试；在 JDK 17 下该测试会自动跳过
 
 在仓库根目录执行：
 
@@ -117,12 +117,13 @@ release 当前使用 debug 签名，目的是让构建出的 APK 可以直接侧
 
 - `:app:assembleDebug`：通过
 - `:app:assembleRelease`：通过，`apksigner` 验证 v2 签名通过，`zipalign` 验证通过
-- `:app:testDebugUnitTest`：10 个 JVM 单元测试；JDK 17 下 9 个通过、`KadbIdentityTest` 因 Kadb 的 Java 21 class 版本自动跳过，JDK 21+ 下 10 个全部通过
+- `:app:testDebugUnitTest`：13 个 JVM 单元测试；JDK 17 下 11 个通过、`KadbIdentityTest` 因 Kadb 的 Java 21 class 版本自动跳过，JDK 24 下 13 个全部通过
   - `SubnetTest` 5 个：/24 网段、/16 与 /8 收窄、非法地址、IP 转换
   - `BrandHintsTest` 4 个：品牌识别与电视特征
-  - `KadbIdentityTest` 1 个：Kadb 生成并持久化 ADB 私钥/证书
-- 运行时依赖核查：release dex 中包含 `com.flyfishxu.kadb`、`com.flyfish233.crypto.spake2`、`org.conscrypt.OpenSSLProvider`、BouncyCastle
-- 内置 APK 校验：与 SwiftTV 0.4.4 公开发行包的 SHA-256 完全一致（`29534b6b730682a407281dcf6ec5fb7d1c0c90cec5822b8b23713b01b2d71c29`）
+  - `PushConfigCodecTest` 2 个：URL 安全 Base64 推源载荷编码与校验
+  - `KadbIdentityTest` 2 个：Kadb 生成并持久化 ADB 私钥/证书 + 非 CRT `RSAPrivateKey` 公钥派生回归（修复 Issue #3）
+- 运行时依赖核查：release dex 中包含 `com.flyfishxu.kadb`（2.1.4，含 BouncyCastle `PrivateKeyInfo` 派生修复）、`com.flyfish233.crypto.spake2`、`org.conscrypt.OpenSSLProvider`、BouncyCastle
+- 内置 APK 校验：与 SwiftTV 0.4.5 公开发行包的 SHA-256 完全一致（`f5b256ee6cd83e03167cbb790620a48484f7a757a43a14fb0709d50ece7e1fc1`）
 - 未在真实电视上做端到端安装测试（当前环境没有可连接的电视）；首次使用请按上面的电视端步骤操作
 
 ## 已知限制

@@ -18,6 +18,15 @@
     public <init>();
 }
 
+# Keep Media3 FFmpeg audio extension loaded reflectively by DefaultRenderersFactory.
+-keep class androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer {
+    public <init>(android.os.Handler, androidx.media3.exoplayer.audio.AudioRendererEventListener, androidx.media3.exoplayer.audio.AudioSink);
+}
+-keep class androidx.media3.decoder.ffmpeg.FfmpegLibrary { *; }
+-keep, includedescriptorclasses class androidx.media3.decoder.ffmpeg.FfmpegAudioDecoder {
+    private java.nio.ByteBuffer growOutputBuffer(androidx.media3.decoder.SimpleDecoderOutputBuffer, int);
+}
+
 # Optional JVM/legacy annotations referenced reflectively by OkHttp 3.12 / 4.12 and Okio.
 -dontwarn org.conscrypt.**
 -dontwarn org.bouncycastle.**

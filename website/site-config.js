@@ -4,29 +4,29 @@ window.SWIFTTV_SITE_CONFIG = {
 
   // GitHub API 限流或离线时使用的保底发行版信息（会在加载后自动尝试从 GitHub Releases Latest 实时更新）
   fallbackRelease: {
-    tag: "v0.4.4",
-    publishedAt: "2026-11-27",
-    releaseUrl: "https://github.com/morangse/SwiftTV/releases/tag/v0.4.4",
+    tag: "v0.4.5",
+    publishedAt: "2026-11-28",
+    releaseUrl: "https://github.com/morangse/SwiftTV/releases/tag/v0.4.5",
     allReleasesUrl: "https://github.com/morangse/SwiftTV/releases",
     tvApk: {
-      name: "SwiftTV-0.4.4.apk",
-      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-0.4.4.apk",
-      sizeLabel: "3.5 MB",
-      sha256: "29534b6b730682a407281dcf6ec5fb7d1c0c90cec5822b8b23713b01b2d71c29"
+      name: "SwiftTV-0.4.5.apk",
+      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SwiftTV-0.4.5.apk",
+      sizeLabel: "9.3 MB",
+      sha256: "f5b256ee6cd83e03167cbb790620a48484f7a757a43a14fb0709d50ece7e1fc1"
     },
     liteApk: {
-      name: "SwiftTV-Lite-0.4.4.apk",
-      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Lite-0.4.4.apk",
-      sizeLabel: "3.3 MB",
-      sha256: "53879b61402068c2fb48f749c6afc7a2fe332b4eb41f211162979e201adc7b"
+      name: "SwiftTV-Lite-0.4.5.apk",
+      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SwiftTV-Lite-0.4.5.apk",
+      sizeLabel: "5.9 MB",
+      sha256: "c7573f3a3f96e3c62c18a3dd7bc64334e9d38f98048a6e2344763ca7b70c3a8d"
     },
     installerApk: {
-      name: "SwiftTV-Installer-1.1.4.apk",
-      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SwiftTV-Installer-1.1.4.apk",
-      sizeLabel: "22.1 MB",
-      sha256: "09d381d4119b110507615cca0f84cfa61ec97ef8e020faa38fbb8ddd27d71a6e"
+      name: "SwiftTV-Installer-1.1.5.apk",
+      url: "https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SwiftTV-Installer-1.1.5.apk",
+      sizeLabel: "28.0 MB",
+      sha256: "6ecf562a8f34951670abb621a2ee30d6639ddf8b307c256ac53bd2fc3358f513"
     },
-    checksumsUrl: "https://github.com/morangse/SwiftTV/releases/download/v0.4.4/SHA256SUMS.txt"
+    checksumsUrl: "https://github.com/morangse/SwiftTV/releases/download/v0.4.5/SHA256SUMS.txt"
   },
 
   // 合法公开测试源与遵循 DMCA 的开源免费列表（仅作播放器功能与格式调试用途）

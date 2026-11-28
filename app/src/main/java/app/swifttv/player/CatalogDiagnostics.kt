@@ -18,7 +18,8 @@ object CatalogDiagnostics {
                 .put("routeGroup", SourceRoutes.group(entry)).put("providers", JSONArray(providers))
                 .put("attempts", stat.attempts).put("successes", stat.successes).put("firstFrameMs", stat.firstFrameMs)
                 .put("rebufferMs", stat.rebufferMs).put("playedMs", stat.playedMs).put("checkedAt", stat.checkedAt)
-                .put("width", stat.width).put("height", stat.height).put("codec", stat.codec).put("audioStarted", stat.audioStarted)
+                .put("width", stat.width).put("height", stat.height).put("codec", stat.codec)
+                .put("audioStarted", stat.audioStarted).put("audioCodec", stat.audioCodec)
                 .put("failures", stat.failures).put("cancelled", stat.cancelled).put("lastOutcome", stat.lastOutcome)
                 .put("error", DiagnosticRedaction.message(stat.error)).put("health", SourceHealth.describe(stat))
         }

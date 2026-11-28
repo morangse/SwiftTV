@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
     private var startupRejected = false
     private var backgrounded = false
     private var userDeparted = false
+    private var startupAutoRefreshAttempted = false
     private var pendingPushB64: String? = null
     private var startupSourceDialog: View? = null
 
@@ -272,7 +273,9 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 }
             }
             if (!isolatedTestMode) {
-                refreshSubscriptions(false)
+                val coldLaunch = !startupAutoRefreshAttempted
+                if (coldLaunch) startupAutoRefreshAttempted = true
+                refreshSubscriptions(explicit = false, isColdLaunch = coldLaunch)
                 refreshEpg(false)
             }
         }
@@ -446,6 +449,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             fontScaleMode = TvStyle.fontScaleMode(this),
             lightweight = TvStyle.lightweight(this),
             smartLogoLookup = TvStyle.smartLogoLookup(this),
+            autoRefreshSubscriptions = TvStyle.autoRefreshSubscriptions(this),
             customEpgUrl = snap.customEpgUrl,
             supports4kHevc50 = codecProfile.supports4kHevc50,
             logoCacheBytes = artwork.cacheSizeBytes()
@@ -510,6 +514,12 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 toast(if (next) "已开启智能台标识别" else "已关闭在线台标兜底")
                 return next
             }
+            override fun onToggleAutoRefreshSubscriptions(): Boolean {
+                val next = !TvStyle.autoRefreshSubscriptions(this@MainActivity)
+                TvStyle.setAutoRefreshSubscriptions(this@MainActivity, next)
+                toast(if (next) "已开启启动时自动更新订阅" else "已关闭启动时自动更新订阅")
+                return next
+            }
             override fun onCycleRouting(): String {
                 RoutingMode.save(this@MainActivity, RoutingMode.read(this@MainActivity).next())
                 availableChannels().firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it) }
@@ -521,9 +531,12 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             }
             override fun onOpenStartupSettings() { showStartupSettings() }
             override fun onShowHardwareInfo() {
-                val note = if (codecProfile.supports4kHevc50) "检测到 4K HEVC 硬件解码能力。实际播放由线路与设备决定。"
+                val videoNote = if (codecProfile.supports4kHevc50) "检测到 4K HEVC 硬件解码能力。实际播放由线路与设备决定。"
                 else "优先选择 1080p H.264/AAC 线路。"
-                showModal("本机解码能力", note, primaryLabel = "关闭", secondaryLabel = null) { true }
+                val audioNote = if (PlaybackController.isFfmpegAudioAvailable()) {
+                    "\n已内置 FFmpeg 音频软解（支持 MP2 / AC-3 / E-AC-3 / DTS 等 IPTV 常见音轨）。"
+                } else ""
+                showModal("本机解码能力", videoNote + audioNote, primaryLabel = "关闭", secondaryLabel = null) { true }
             }
             override fun onRefreshAll() {
                 refreshSubscriptions(true)
@@ -1077,6 +1090,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                 JSONObject(store.diagnostics(Build.MANUFACTURER + " " + Build.MODEL + " / Android " + Build.VERSION.RELEASE, RoutingMode.read(this).key))
                     .put("startup", StartupRuntime.diagnostics(this))
                     .put("codec4kHevc50", codecProfile.supports4kHevc50)
+                    .put("ffmpegAudioAvailable", PlaybackController.isFfmpegAudioAvailable())
                     .toString(2)
             } else null
 
@@ -1242,17 +1256,21 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         }
     }
 
-    private fun refreshSubscriptions(explicit: Boolean) {
+    private fun refreshSubscriptions(explicit: Boolean, isColdLaunch: Boolean = false) {
         if (refreshing) { if (explicit) toast("正在后台刷新订阅…"); return }
         val now = System.currentTimeMillis()
-        val subs = store.snapshot().subscriptions.filter {
-            SourceRoutes.isHttpFamily(it.url) && (explicit || now - it.updatedAt >= 86400000L)
-        }
+        val subs = SubscriptionRefreshPolicy.selectDue(
+            subscriptions = store.snapshot().subscriptions,
+            nowMs = now,
+            explicit = explicit,
+            autoRefreshEnabled = TvStyle.autoRefreshSubscriptions(this),
+            isColdLaunch = isColdLaunch
+        )
         if (subs.isEmpty()) { if (explicit) toast("当前无需要刷新的远程订阅"); return }
         refreshing = true
         if (explicit) toast("正在同步远程频道表…")
         io.execute {
-            var success = 0; var failed = 0
+            var success = 0; var updatedCount = 0; var failed = 0
             for (sub in subs) {
                 try {
                     val result = network.download(sub.url, sub.etag, sub.lastModified)
@@ -1266,17 +1284,33 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
                             epgUrl = sub.epgUrl.ifBlank { parsed.epgUrls.firstOrNull().orEmpty() }
                         )
                         store.replaceSubscription(updated, parsed)
+                        updatedCount++
                     }
                     success++
                 } catch (_: Exception) { failed++ }
             }
             postUi {
                 refreshing = false
-                if (explicit || failed > 0) toast("订阅同步完成：$success 成功" + if (failed > 0) "，$failed 失败（已保留旧列表）" else "")
-                if (overlayMode == "channels") ribbon?.updateCatalog(availableChannels(), store.snapshot().favorites)
-                if (success > 0) refreshEpg(false)
-                if (success > 0 && controller?.exhausted == true && controller?.probing != true) {
-                    availableChannels().firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it, explicitRetry = true) }
+                if (!explicit && success == 0 && failed > 0) {
+                    startupAutoRefreshAttempted = false
+                }
+                if (explicit) {
+                    toast("订阅同步完成：$success 成功" + if (failed > 0) "，$failed 失败（已保留旧列表）" else "")
+                } else if (updatedCount > 0) {
+                    toast("已自动更新 $updatedCount 个远程订阅")
+                }
+                if (updatedCount > 0 || (explicit && success > 0)) {
+                    val channels = availableChannels()
+                    ribbon?.updateCatalog(channels, store.snapshot().favorites)
+                    refreshEpg(false)
+                    if (controller?.current == null) {
+                        CatalogSelection.chooseStart(channels, store.snapshot().lastChannel, store.snapshot().stats)?.let {
+                            landing.visibility = View.GONE
+                            controller?.tune(it, explicitRetry = true)
+                        }
+                    } else if (controller?.exhausted == true && controller?.probing != true) {
+                        channels.firstOrNull { it.id == controller?.current?.id && it.sources.isNotEmpty() }?.let { controller?.tune(it, explicitRetry = true) }
+                    }
                 }
             }
         }
@@ -1312,7 +1346,7 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
         lastStatusMessage = message
         playbackMark = when {
             failed -> ChannelPlaybackMark.FAILED
-            message == "正在播放" -> ChannelPlaybackMark.PLAYING
+            message == "正在播放" || message == "此线路没有可用音轨" -> ChannelPlaybackMark.PLAYING
             message.contains("缓冲") -> ChannelPlaybackMark.BUFFERING
             else -> ChannelPlaybackMark.CONNECTING
         }
@@ -1324,7 +1358,9 @@ class MainActivity : ComponentActivity(), PlaybackController.Callback {
             hud.showAnimated()
         }
         handler.removeCallbacks(hideHud)
-        if (!failed && message == "正在播放") handler.postDelayed(hideHud, 3800)
+        if (!failed && (message == "正在播放" || message == "此线路没有可用音轨")) {
+            handler.postDelayed(hideHud, if (message == "此线路没有可用音轨") 5000L else 3800L)
+        }
         if (failed && !overlay.isVisible && !modalHost.isNotEmpty() && controller?.probing != true) {
             toast("${channel?.name ?: "当前频道"} · $message")
             showChannels()

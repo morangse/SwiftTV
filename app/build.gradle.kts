@@ -60,6 +60,7 @@ android {
         }
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -71,6 +72,8 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
     "standardImplementation"("androidx.core:core-ktx:1.16.0")
     "standardImplementation"("androidx.activity:activity-ktx:1.11.0")
     "standardImplementation"("androidx.recyclerview:recyclerview:1.3.0")
@@ -80,6 +83,9 @@ dependencies {
     "standardImplementation"("androidx.media3:media3-datasource-okhttp:1.11.1")
     "standardImplementation"("androidx.media3:media3-datasource-rtmp:1.11.1")
     "standardImplementation"("androidx.media3:media3-ui:1.11.1")
+    "standardImplementation"("org.jellyfin.media3:media3-ffmpeg-decoder:1.9.0+1") {
+        exclude(group = "androidx.media3")
+    }
     "standardImplementation"("com.squareup.okhttp3:okhttp:4.12.0")
     "testStandardImplementation"("com.squareup.okhttp3:mockwebserver:4.12.0")
 
@@ -92,6 +98,9 @@ dependencies {
     "liteImplementation"("androidx.media3:media3-exoplayer-rtsp:1.4.1")
     "liteImplementation"("androidx.media3:media3-datasource-rtmp:1.4.1")
     "liteImplementation"("androidx.media3:media3-ui:1.4.1")
+    "liteImplementation"("org.jellyfin.media3:media3-ffmpeg-decoder:1.2.0+1") {
+        exclude(group = "androidx.media3")
+    }
     "liteImplementation"("com.squareup.okhttp3:okhttp:3.12.13")
     "testLiteImplementation"("com.squareup.okhttp3:mockwebserver:3.12.13")
 

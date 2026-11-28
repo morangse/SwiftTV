@@ -48,4 +48,32 @@ class UiPreferencesTest {
         assertEquals(1.35f, FontScaleMode.ELDERLY.multiplier, 0.001f)
         assertEquals(1.55f, FontScaleMode.EXTRA_LARGE.multiplier, 0.001f)
     }
+
+    @Test fun subscriptionAutoRefreshPolicyRespectsColdLaunchToggleAndWarmCooldown() {
+        val httpFresh = Subscription("http-fresh", "远程源A", "https://example.com/a.m3u", updatedAt = 1_000_000L)
+        val httpOld = Subscription("http-old", "远程源B", "http://example.org/b.m3u", updatedAt = 100_000L)
+        val local = Subscription("local", "本地推送", "", updatedAt = 0L)
+        val subs = listOf(httpFresh, httpOld, local)
+        val now = 1_000_000L + 5 * 60 * 1000L // 5 min after httpFresh, >15 min after httpOld
+
+        // Cold launch with toggle ON: refreshes all HTTP/HTTPS subscriptions even if recently updated
+        assertEquals(
+            listOf("http-fresh", "http-old"),
+            SubscriptionRefreshPolicy.selectDue(subs, now, explicit = false, autoRefreshEnabled = true, isColdLaunch = true).map { it.id }
+        )
+        // Cold launch with toggle OFF: skips automatic refresh
+        assertTrue(
+            SubscriptionRefreshPolicy.selectDue(subs, now, explicit = false, autoRefreshEnabled = false, isColdLaunch = true).isEmpty()
+        )
+        // Warm resume with toggle ON: only refreshes subscriptions past the 15-minute cooldown
+        assertEquals(
+            listOf("http-old"),
+            SubscriptionRefreshPolicy.selectDue(subs, now, explicit = false, autoRefreshEnabled = true, isColdLaunch = false).map { it.id }
+        )
+        // Explicit manual refresh works even when auto-refresh toggle is OFF, still excludes local non-HTTP subscriptions
+        assertEquals(
+            listOf("http-fresh", "http-old"),
+            SubscriptionRefreshPolicy.selectDue(subs, now, explicit = true, autoRefreshEnabled = false, isColdLaunch = false).map { it.id }
+        )
+    }
 }

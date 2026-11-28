@@ -240,6 +240,7 @@ class PlaybackController(
     private var lastFlush = 0L
     private var lastFormat: Format? = null
     private var lastAudioMime: String = ""
+    private var audioTrackMissing = false
     private var lastFirstFrameMs = 0L
     private var closed = false
     private var warmCall: Call? = null
@@ -434,6 +435,7 @@ class PlaybackController(
         firstFrame = false
         lastFormat = null
         lastAudioMime = ""
+        audioTrackMissing = false
         lastFirstFrameMs = 0L
         switchId = UUID.randomUUID().toString()
         sourceStartedAt = SystemClock.elapsedRealtime()
@@ -779,6 +781,22 @@ class PlaybackController(
                     for (i in 0 until audioGroup.length) if (audioGroup.isTrackSelected(i)) {
                         lastAudioMime = audioGroup.getTrackFormat(i).sampleMimeType.orEmpty()
                     }
+                    if (lastAudioMime.isNotEmpty()) {
+                        entry?.let { e -> store.record(e.url) { it.copy(audioCodec = lastAudioMime) } }
+                    }
+                } else {
+                    val unselectedMimes = tracks.groups
+                        .filter { it.type == C.TRACK_TYPE_AUDIO }
+                        .flatMap { grp ->
+                            (0 until grp.length).mapNotNull { i ->
+                                grp.getTrackFormat(i).sampleMimeType?.takeIf(String::isNotBlank)
+                            }
+                        }
+                        .distinct()
+                    if (unselectedMimes.isNotEmpty()) {
+                        val marker = "unsupported:" + unselectedMimes.joinToString(",")
+                        entry?.let { e -> store.record(e.url) { it.copy(audioCodec = marker) } }
+                    }
                 }
                 if (video != null) {
                     for (i in 0 until video.length) if (video.isTrackSelected(i)) {
@@ -791,8 +809,14 @@ class PlaybackController(
                         }
                     }
                 }
+                val wasAudioMissing = audioTrackMissing
+                audioTrackMissing = (audioGroup == null && video != null)
                 publishStreamSpec()
-                if (audioGroup == null && video != null) callback.onStatus(current, "此线路没有可用音轨")
+                if (audioTrackMissing) {
+                    callback.onStatus(current, "此线路没有可用音轨")
+                } else if (wasAudioMissing && firstFrame) {
+                    callback.onStatus(current, "正在播放")
+                }
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (closed || entry == null || pendingReconnect != null) return
@@ -802,7 +826,7 @@ class PlaybackController(
                     callback.onStatus(current, if (firstFrame) "正在缓冲…" else "正在连接线路…")
                 } else if (state == Player.STATE_READY) {
                     bufferingAt = 0
-                    if (firstFrame) callback.onStatus(current, "正在播放")
+                    if (firstFrame) callback.onStatus(current, if (audioTrackMissing) "此线路没有可用音轨" else "正在播放")
                 } else if (state == Player.STATE_ENDED) {
                     recoverOrFail(null, "直播已停止")
                 }
@@ -815,6 +839,12 @@ class PlaybackController(
                 val eventId = if (!timeline.isEmpty && eventTime.windowIndex in 0 until timeline.windowCount)
                     timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem.mediaId else player.currentMediaItem?.mediaId
                 if (eventId == switchId) recoverOrFail(error, classify(error))
+            }
+            override fun onAudioCodecError(eventTime: AnalyticsListener.EventTime, audioCodecError: Exception) {
+                Log.w("SwiftTVMetric", "audio_codec_error source=" + entry?.url?.let { sourceId(it) } + " error=" + DiagnosticRedaction.message(audioCodecError.message.orEmpty()))
+            }
+            override fun onAudioSinkError(eventTime: AnalyticsListener.EventTime, audioSinkError: Exception) {
+                Log.w("SwiftTVMetric", "audio_sink_error source=" + entry?.url?.let { sourceId(it) } + " error=" + DiagnosticRedaction.message(audioSinkError.message.orEmpty()))
             }
             override fun onAudioPositionAdvancing(eventTime: AnalyticsListener.EventTime, playoutStartSystemTimeMs: Long) {
                 if (closed || entry == null || eventTime.timeline.isEmpty) return
@@ -842,7 +872,7 @@ class PlaybackController(
                     codec = lastFormat?.sampleMimeType ?: s.codec) }
                 publishStreamSpec()
                 current?.let { callback.onFirstFrame(it, ms) }
-                callback.onStatus(current, "正在播放")
+                callback.onStatus(current, if (audioTrackMissing) "此线路没有可用音轨" else "正在播放")
                 Log.i("SwiftTVMetric", "first_frame channel=" + current?.id + " ms=" + ms +
                     " source=" + sourceId(e.url) + " switch=" + switchId + " probe=" + probing)
                 if (!probing) warmNext()
@@ -886,5 +916,13 @@ class PlaybackController(
                 .build(),
             cb
         )
+    }
+
+    companion object {
+        fun isFfmpegAudioAvailable(): Boolean = runCatching {
+            Class.forName("androidx.media3.decoder.ffmpeg.FfmpegLibrary")
+                .getMethod("isAvailable")
+                .invoke(null) as? Boolean ?: false
+        }.getOrDefault(false)
     }
 }
